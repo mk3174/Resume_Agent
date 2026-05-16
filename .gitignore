@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# uv
+.uv-cache/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Environment / secrets
+.env
+.env.local
+*.key
+*.pem
+credentials/secrets.age
+
+# Data (user content + generated artifacts)
+data/output/*/
+data/tracker.db
+data/tracker.db-*
+data/chroma/
+storage_state/
+
+# Generated PDFs & screenshots in ad-hoc locations
+*.pdf
+!data/input/*.pdf
+
+# Logs
+*.log
+logs/
+
+# Tests
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Ruff
+.ruff_cache/

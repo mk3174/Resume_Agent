@@ -1,0 +1,53 @@
+# One-time personal facts. The Responder agent looks here BEFORE asking the LLM
+# or pinging Telegram. The more you fill in, the fewer interruptions.
+# Anything left blank or null will fall back to: cached qa_memory -> LLM -> Telegram.
+
+identity:
+  full_name: Jane Doe
+  email: jane@example.com
+  phone: "+1-555-0100"
+  linkedin_url: https://www.linkedin.com/in/janedoe
+  github_url: https://github.com/janedoe
+  portfolio_url: https://janedoe.dev
+  pronouns: she/her
+
+work_authorization:
+  citizen_or_pr_in:    [US]                  # countries
+  visa_required_in:    [Canada, UK]          # countries where you'd need sponsorship
+  open_to_relocation:  true
+  willing_to_travel_pct: 25
+
+compensation:
+  base_min_usd: 150000
+  base_target_usd: 190000
+  base_max_usd: 230000
+  open_to_equity: true
+  preferred_currency: USD
+
+availability:
+  notice_period_weeks: 2
+  earliest_start_date: 2026-06-01
+
+demographics:                                # only what you're willing to share on EEOC forms
+  gender: prefer_not_to_say
+  ethnicity: prefer_not_to_say
+  veteran_status: not_a_veteran
+  disability_status: prefer_not_to_say
+
+experience_years:
+  python: 6
+  typescript: 4
+  llm_engineering: 3
+  pytorch: 4
+  aws: 5
+  kubernetes: 3
+
+# Free-text answers that recur. Will be lightly tweaked per-JD by Responder.
+canned_answers:
+  why_interested_in_ai: |
+    I'm interested in shipping AI products that real users rely on, not just papers.
+    I enjoy the engineering side: evals, latency, retrieval, and the feedback loop
+    between research and production.
+  greatest_strength: |
+    Bias to ship: I get from blank repo to user-facing prototype quickly, and I
+    instrument heavily so I know whether what I shipped is actually working.

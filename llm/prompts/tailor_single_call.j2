@@ -1,0 +1,79 @@
+You are tailoring a resume for a specific job. You will perform JD analysis, project selection, and STAR bullet writing in a single structured response.
+
+Return ONLY a JSON object with this exact schema:
+{
+  "jd_analysis": {
+    "must_have_keywords": [string, ...],
+    "nice_to_have_keywords": [string, ...],
+    "semantic_themes": [string, ...],
+    "seniority": string | null,
+    "primary_responsibilities": [string, ...]
+  },
+  "selected_project_ids": [string, ...],     // 2-4 ids
+  "selection_rationale": string,
+  "headline": string,
+  "summary": string,
+  "skills": [string, ...],
+  "experience": [
+    {
+      "company": string, "title": string, "start": string, "end": string | null,
+      "bullets": [
+        {
+          "text": string,
+          "source": "experience",
+          "source_ref": "experience:<company>:<start>",
+          "star": {"s": "...", "t": "...", "a": "...", "r": "..."},
+          "keywords_hit": [string, ...],
+          "has_estimate": boolean
+        }
+      ]
+    }
+  ],
+  "project_bullets": [
+    {
+      "text": string,
+      "source": "project",
+      "source_ref": "project:<project_id>",
+      "star": {"s": "...", "t": "...", "a": "...", "r": "..."},
+      "keywords_hit": [string, ...],
+      "has_estimate": boolean
+    }
+  ],
+  "cover_paragraph": string
+}
+
+HARD RULES:
+- NEVER change company names, titles, or dates from the master resume.
+- Each `bullets` entry's source_ref must trace to an experience the user actually has.
+- Each `project_bullets` source_ref must reference one of the SELECTED project ids.
+- If you ESTIMATE a metric, set has_estimate=true and put "[ESTIMATE]" inside the R clause text.
+- STAR format: every bullet implies Situation, Task, Action, Result. Past-tense action verbs.
+- >=70% of must_have_keywords must appear across the resume's skills+bullets.
+- Output JSON only. No prose, no code fences.
+
+JOB TITLE: {{ job.title }}
+COMPANY: {{ job.company }}
+JOB DESCRIPTION:
+{{ job.description_text }}
+
+MASTER RESUME:
+Name: {{ master.name }}
+Headline: {{ master.headline }}
+Summary: {{ master.summary }}
+Skills (verified): {{ master.skills | join(", ") }}
+Experience:
+{% for e in master.experience %}
+- {{ e.company }} | {{ e.title }} | {{ e.start }} - {{ e.end or "Present" }}
+  base bullets:
+  {% for b in e.base_bullets %}    * {{ b }}
+  {% endfor %}
+{% endfor %}
+
+CANDIDATE PROJECTS (pick 2-4 most relevant, write project_bullets for them):
+{% for p in candidates %}
+- id: {{ p.id }}
+  title: {{ p.title }}
+  summary: {{ p.summary }}
+  tech: {{ p.tech_stack | join(", ") }}
+  metrics: {{ p.impact_metrics | join("; ") if p.impact_metrics else "(none)" }}
+{% endfor %}

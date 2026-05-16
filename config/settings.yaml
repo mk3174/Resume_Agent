@@ -1,0 +1,119 @@
+# Copy to settings.yaml and edit. settings.yaml is gitignored.
+
+# ----------------------------------------------------------------------
+# LLM router: which models handle which tasks.
+# ----------------------------------------------------------------------
+llm:
+  # Which provider to try first for each task. Falls back to next on error.
+  # Local-only: every task runs on the Ollama Qwen model. No external escalation.
+  routes:
+    tailor:    [ollama]              # JD -> resume.
+    responder: [ollama]              # Custom Q&A.
+    rerank:    [ollama]              # Project rerank in chained_local mode.
+
+  providers:
+    ollama:
+      host: ${OLLAMA_HOST:-http://localhost:11434}
+      models:
+        chat:    qwen3:8b            # default chat model (Qwen 3 8B per architecture plan)
+        rerank:  qwen3:8b
+        embed:   nomic-embed-text    # 768-dim, local, free
+      timeout_s: 600
+      # Hardware sizing: qwen3:8b at Q4 needs ~5GB, fits on an 8GB Mac with room to
+      # spare. qwen3:14b (~9GB) and qwen3:27b (~17GB) require >=16GB and >=24GB
+      # respectively. Bigger is NOT better here; pick the one that fits.
+    anthropic:
+      model: claude-sonnet-4-5-20250929
+      max_tokens: 4096
+      temperature: 0.2
+    openai:
+      model: gpt-4o
+      max_tokens: 4096
+      temperature: 0.2
+
+  # Hard monthly budget cap for paid providers (USD). Hits this -> auto-fallback to local.
+  budget_usd_per_month: 5.00
+
+# ----------------------------------------------------------------------
+# Tailor strategy.
+# ----------------------------------------------------------------------
+tailor:
+  mode: chained_local        # chained_local | single_call
+  ats_keyword_threshold: 0.70 # min coverage of JD must-have keywords
+  max_retailor_attempts: 2
+  resume_max_words: 700
+  embellishment_policy: library_plus_metrics  # library_only | library_plus_metrics | full_synthesis (NOT recommended)
+  estimate_tag: "[ESTIMATE]"
+  top_k_projects: 10          # pre-filter by embedding before LLM rerank/select
+
+# ----------------------------------------------------------------------
+# Responder strategy (custom Q&A).
+# ----------------------------------------------------------------------
+responder:
+  qa_memory_path: data/qa_memory.json
+  similarity_threshold: 0.85   # if cached Q matches this closely, auto-answer
+  confidence_threshold: 0.70   # below this -> Telegram barrier
+  always_escalate_keywords:
+    - sponsor
+    - visa
+    - h1b
+    - salary
+    - compensation
+    - race
+    - gender
+    - veteran
+    - disability
+    - felony
+
+# ----------------------------------------------------------------------
+# Ingestion: which ATS company boards to poll.
+#   Greenhouse: token = path segment of boards.greenhouse.io/<token>
+#   Lever:      token = path segment of jobs.lever.co/<token>
+#   Ashby:      token = path segment of jobs.ashbyhq.com/<token>
+# Add/remove freely. Tokens are usually the company's slug.
+# ----------------------------------------------------------------------
+ingest:
+  greenhouse_boards:
+    - airbnb
+    - stripe
+    - anthropic
+    - figma
+  lever_boards:
+    - netflix
+    - palantir
+  ashby_boards:
+    - openai
+    - linear
+
+  # Phase 4 platforms (off by default)
+  linkedin:
+    enabled: false
+    storage_state_path: storage_state/linkedin.json
+  indeed:
+    enabled: false
+    storage_state_path: storage_state/indeed.json
+    proxy_url: ${PROXY_URL}
+
+# ----------------------------------------------------------------------
+# Apply behaviour (Phase 3+).
+# ----------------------------------------------------------------------
+apply:
+  dry_apply: true              # if true, render artifacts but don't actually submit
+  rate_limit_per_hour: 8       # global cap across all platforms
+  screenshot_on_submit: true
+
+# ----------------------------------------------------------------------
+# Notifications.
+# ----------------------------------------------------------------------
+notify:
+  channel: telegram            # telegram | console
+  fyi_for_estimates: true
+  fyi_for_clean_submit: false  # set true if you want a ping per successful application
+
+# ----------------------------------------------------------------------
+# Storage.
+# ----------------------------------------------------------------------
+store:
+  db_url: sqlite:///data/tracker.db
+  output_dir: data/output
+  chroma_dir: data/chroma

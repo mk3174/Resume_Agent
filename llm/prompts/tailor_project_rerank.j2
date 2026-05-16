@@ -1,0 +1,26 @@
+You are picking the best 2-4 user projects to feature on a tailored resume for the role below.
+
+Return ONLY a JSON object:
+{
+  "selected_project_ids": [string, ...],   // 2-4 ids from the list, ordered most-to-least relevant
+  "rationale": string                       // 1-2 sentences: WHY these match
+}
+
+Rules:
+- Pick projects that demonstrate the JD's must-have keywords or semantic themes.
+- Prefer projects with concrete impact metrics over fluffy ones.
+- Output JSON only. No prose, no code fences.
+
+JOB:
+- Title: {{ job.title }} @ {{ job.company }}
+- Must-have keywords: {{ jd.must_have_keywords | join(", ") }}
+- Semantic themes: {{ jd.semantic_themes | join(", ") }}
+
+CANDIDATE PROJECTS:
+{% for p in candidates %}
+- id: {{ p.id }}
+  title: {{ p.title }}
+  summary: {{ p.summary }}
+  tech: {{ p.tech_stack | join(", ") }}
+  metrics: {{ p.impact_metrics | join("; ") if p.impact_metrics else "(none provided)" }}
+{% endfor %}

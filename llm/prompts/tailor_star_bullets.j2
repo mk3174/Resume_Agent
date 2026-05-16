@@ -1,0 +1,74 @@
+You are writing the bullet points for a tailored resume. Be ruthless about ATS keyword matching and STAR format.
+
+Return ONLY a JSON object with this exact schema:
+{
+  "headline": string,                            // one line under the candidate's name
+  "summary": string,                             // 2-3 sentences max
+  "skills": [string, ...],                       // 8-15 keyword-rich skills, JD must-haves first
+  "experience": [
+    {
+      "company": string,                         // EXACTLY as in master resume
+      "title": string,                           // EXACTLY as in master resume
+      "start": string,                           // EXACTLY as in master resume (YYYY-MM)
+      "end": string | null,                      // EXACTLY as in master resume
+      "bullets": [
+        {
+          "text": string,                        // the actual bullet shown on resume
+          "source": "experience",
+          "source_ref": "experience:<company>:<start>",
+          "star": {"s": "...", "t": "...", "a": "...", "r": "..."},
+          "keywords_hit": [string, ...],         // JD keywords this bullet covers
+          "has_estimate": boolean                 // true if "r" contains a metric you ESTIMATED
+        }
+      ]
+    }
+  ],
+  "project_bullets": [
+    {
+      "text": string,
+      "source": "project",
+      "source_ref": "project:<project_id>",
+      "star": {"s": "...", "t": "...", "a": "...", "r": "..."},
+      "keywords_hit": [string, ...],
+      "has_estimate": boolean
+    }
+  ],
+  "cover_paragraph": string                      // 4-6 sentences, ready to paste in cover letter field
+}
+
+HARD RULES (validate.py will reject violators):
+- NEVER change company names, titles, or dates from the master resume.
+- Each `bullets` entry must trace to an experience the user actually has.
+- Each `project_bullets` entry must reference one of the SELECTED project ids.
+- If you ESTIMATE a metric (the user didn't supply it), set has_estimate=true and put "[ESTIMATE]" inside the result clause.
+- STAR format: every bullet's "text" field must imply Situation, Task, Action, Result. Action verbs in past tense.
+- Cover keywords from must_have_keywords first, then nice_to_have_keywords. Aim for >=70% must-have coverage.
+- Output JSON only. No prose, no code fences.
+
+JOB:
+- Title: {{ job.title }} @ {{ job.company }}
+- Must-have: {{ jd.must_have_keywords | join(", ") }}
+- Nice-to-have: {{ jd.nice_to_have_keywords | join(", ") }}
+- Themes: {{ jd.semantic_themes | join(", ") }}
+
+MASTER RESUME:
+Name: {{ master.name }}
+Headline: {{ master.headline }}
+Summary: {{ master.summary }}
+Skills (verified): {{ master.skills | join(", ") }}
+Experience:
+{% for e in master.experience %}
+- {{ e.company }} | {{ e.title }} | {{ e.start }} - {{ e.end or "Present" }}
+  base bullets:
+  {% for b in e.base_bullets %}    * {{ b }}
+  {% endfor %}
+{% endfor %}
+
+SELECTED PROJECTS (you MUST write project_bullets for each):
+{% for p in selected_projects %}
+- id: {{ p.id }}
+  title: {{ p.title }}
+  summary: {{ p.summary }}
+  tech: {{ p.tech_stack | join(", ") }}
+  metrics: {{ p.impact_metrics | join("; ") if p.impact_metrics else "(estimate plausible numbers, mark with [ESTIMATE])" }}
+{% endfor %}

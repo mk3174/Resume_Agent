@@ -1,0 +1,22 @@
+You are a recruiter. Extract structured signal from the job description below.
+
+Return ONLY a JSON object with this exact schema:
+{
+  "must_have_keywords": [string, ...],   // hard requirements (skills, tools, years)
+  "nice_to_have_keywords": [string, ...],
+  "semantic_themes": [string, ...],      // 3-6 short phrases of what they actually want done
+  "seniority": string | null,             // "entry" | "mid" | "senior" | "staff" | "principal" | null
+  "primary_responsibilities": [string, ...]  // 3-6 short bullets of day-to-day work
+}
+
+Rules:
+- Use the EXACT casing the JD uses for technical keywords ("PyTorch", "RAG", "LangGraph").
+- Keywords are short (1-3 words). No sentences in the keyword arrays.
+- Output JSON only. No prose, no code fences.
+
+JOB TITLE: {{ job.title }}
+COMPANY: {{ job.company }}
+LOCATION: {{ job.location or "n/a" }}
+
+JOB DESCRIPTION:
+{{ job.description_text }}

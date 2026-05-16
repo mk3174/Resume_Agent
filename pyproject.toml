@@ -1,0 +1,87 @@
+[project]
+name = "resume-agent"
+version = "0.1.0"
+description = "Lean multi-step resume agent: ATS-friendly tailoring, Telegram-only barriers, local-first LLM."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "jk" }]
+license = { text = "MIT" }
+
+dependencies = [
+    # Core
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0",
+    "jinja2>=3.1",
+    "httpx>=0.27",
+    "typer>=0.12",
+    "rich>=13.7",
+
+    # Orchestration
+    "langgraph>=0.2.40",
+    "langgraph-checkpoint-sqlite>=2.0",
+
+    # LLM providers
+    "ollama>=0.3.3",
+    "anthropic>=0.34",
+    "openai>=1.40",
+
+    # Retrieval
+    "chromadb>=0.5.5",
+    "numpy>=1.26",
+
+    # Storage
+    "sqlalchemy>=2.0.30",
+
+    # Render
+    "typst>=0.13.0",
+
+    # Optional helpers
+    "markdown-it-py>=3.0",
+    "tenacity>=8.5",
+
+    # Credentials
+    "keyring>=25.2",
+]
+
+[project.optional-dependencies]
+ui = ["streamlit>=1.36"]
+notify = ["python-telegram-bot>=21.4"]
+playwright = ["patchright>=1.45.0"]
+dev = ["pytest>=8.2", "pytest-asyncio>=0.23", "ruff>=0.5.0"]
+
+[project.scripts]
+resume-agent = "apps.cli.main:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = [
+    "apps",
+    "orchestrator",
+    "pipeline",
+    "ingest",
+    "filters",
+    "render",
+    "llm",
+    "retrieval",
+    "notify",
+    "store",
+    "compute",
+    "credentials",
+    "apply",
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

@@ -1,0 +1,46 @@
+# Job preferences. Used by filters/ to keep / discard scraped jobs.
+# Embedding similarity is computed against the `interest_summary` text below.
+
+target_titles:
+  - AI Engineer
+  - AI/ML Engineer
+  - Machine Learning Engineer
+  - LLM Engineer
+  - Applied AI Engineer
+  - AI Software Engineer
+
+# Hard filters (rules.py). A job must pass ALL of these.
+hard_filters:
+  locations:
+    allow:
+      - Remote
+      - United States
+      - San Francisco
+      - New York
+      - Seattle
+    deny:
+      - India
+      - UK Only
+  employment_types:
+    - Full-time
+  seniority:
+    deny:
+      - Intern
+      - Director
+      - VP
+      - Principal           # remove if you ARE a principal
+  exclude_companies: []
+  min_salary_usd: 120000    # set 0 to disable
+  required_keywords_any: []  # job must contain at least one of these (substring on title+desc)
+  excluded_keywords:
+    - clearance required
+    - active TS/SCI
+
+# Soft scoring (semantic.py). Higher = better fit.
+interest_summary: |
+  AI engineer focused on building production LLM applications, multi-agent systems,
+  retrieval-augmented generation, and agentic workflows. Comfortable with Python,
+  Typescript, vector databases, evals, and shipping prototypes to production. Prefer
+  early-stage startups or applied-AI teams over pure research roles.
+
+semantic_score_min: 0.55     # 0.0 - 1.0, jobs below this are dropped
