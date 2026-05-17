@@ -70,6 +70,7 @@ def _chained_local(
         json_mode=True,
         max_tokens=800,
         temperature=0.1,
+        think=False,
     )
     log.info("JD extract via %s", used)
     jd = JDAnalysis(**_parse_json(raw))
@@ -85,6 +86,7 @@ def _chained_local(
             json_mode=True,
             max_tokens=300,
             temperature=0.1,
+            think=False,
         )
         log.info("rerank via %s", used)
         sel = _parse_json(raw)
@@ -102,15 +104,31 @@ def _chained_local(
         master=master,
         selected_projects=selected,
     )
-    raw, used = router.chat(
-        task="tailor",
-        prompt=p,
-        json_mode=True,
-        max_tokens=2400,
-        temperature=0.3,
-    )
-    log.info("STAR bullets via %s", used)
-    body = _parse_json(raw)
+    body: dict[str, Any] | None = None
+    for attempt in range(2):
+        raw, used = router.chat(
+            task="tailor",
+            prompt=p,
+            json_mode=True,
+            max_tokens=4096 if attempt else 2400,
+            temperature=0.3,
+            think=False,
+        )
+        log.info("STAR bullets via %s (attempt %d)", used, attempt + 1)
+        try:
+            body = _parse_json(raw)
+            break
+        except json.JSONDecodeError:
+            if attempt == 0:
+                log.warning("STAR JSON invalid; retrying with compact-output reminder")
+                p = (
+                    p
+                    + "\n\nYour previous answer was invalid JSON. Return ONLY valid compact JSON. "
+                    "At most 2 bullets per experience and 2 project_bullets; star={} on each bullet."
+                )
+                continue
+            raise
+    assert body is not None
 
     tailored = _build_tailored(body, master, selected_ids=[p.id for p in selected])
     return jd, tailored
@@ -132,6 +150,7 @@ def _single_call(
         json_mode=True,
         max_tokens=3500,
         temperature=0.2,
+        think=False,
     )
     log.info("single-call tailor via %s", used)
     body = _parse_json(raw)

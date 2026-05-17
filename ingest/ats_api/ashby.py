@@ -41,9 +41,19 @@ class AshbyIngestor:
     @staticmethod
     def _parse(raw: dict, company: str) -> JobPosting:
         comp = raw.get("compensation") or {}
+        if not isinstance(comp, dict):
+            comp = {}
         salary_min = salary_max = None
         # Ashby returns compensation tiers; use the first USD one if present.
-        for tier in comp.get("compensationTierSummary", []) or []:
+        # Some boards return tier summaries as plain strings instead of objects.
+        tiers = comp.get("compensationTierSummary") or []
+        if isinstance(tiers, str):
+            tiers = [tiers]
+        for tier in tiers:
+            if isinstance(tier, str):
+                continue
+            if not isinstance(tier, dict):
+                continue
             cur = (tier.get("currencyCode") or "").upper()
             if cur == "USD":
                 salary_min = tier.get("minValue")

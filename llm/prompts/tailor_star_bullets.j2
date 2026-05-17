@@ -43,7 +43,9 @@ HARD RULES (validate.py will reject violators):
 - If you ESTIMATE a metric (the user didn't supply it), set has_estimate=true and put "[ESTIMATE]" inside the result clause.
 - STAR format: every bullet's "text" field must imply Situation, Task, Action, Result. Action verbs in past tense.
 - Cover keywords from must_have_keywords first, then nice_to_have_keywords. Aim for >=70% must-have coverage.
-- Output JSON only. No prose, no code fences.
+- COMPACT OUTPUT (required for local models): at most 2 bullets per experience entry; at most 2
+  project_bullets total; set "star" to {} on every bullet; keep each bullet text under 180 chars.
+- Escape double quotes inside strings as \". Output JSON only. No prose, no code fences.
 
 JOB:
 - Title: {{ job.title }} @ {{ job.company }}
