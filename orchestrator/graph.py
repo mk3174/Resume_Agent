@@ -223,10 +223,10 @@ def route_after_tailor(state: ApplicationState) -> str:
 
 
 def route_after_render(state: ApplicationState) -> str:
-    """If apply.dry_apply=true AND apply step disabled at the call-site, skip apply."""
+    """Skip browser apply when dry_apply (Phase 1: render-only, no Playwright required)."""
     settings = load_settings()
-    # When dry_apply, we still go through apply node — but it short-circuits to a screenshot.
-    # Skip apply entirely if there's no applier for this source AND dry_apply.
+    if settings["apply"].get("dry_apply", True):
+        return "persist"
     if apply.get_applier(state.job.source) is None:
         return "persist"
     return "apply"
