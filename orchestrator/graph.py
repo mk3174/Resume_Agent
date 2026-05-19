@@ -22,7 +22,7 @@ from typing import Any
 from langgraph.graph import END, StateGraph
 
 import apply  # registers all per-portal appliers via side-effect import
-from apply.base import ApplyContext
+from apply.base import ApplyContext, patchright_available
 from apply.rate_limit import can_apply, remaining
 from config_loader import PROJECT_ROOT, load_settings
 from orchestrator.state import (
@@ -150,6 +150,20 @@ def node_apply(state: ApplicationState) -> dict[str, Any]:
 
     if state.tailored is None or not state.output_dir:
         return {"status": ApplicationStatus.NEEDS_REVIEW}
+
+    if not patchright_available():
+        from apply.base import _PATCHRIGHT_INSTALL_HINT
+
+        log.warning("%s", _PATCHRIGHT_INSTALL_HINT)
+        if dry:
+            # Artifacts (PDF, cover) are done; skip browser screenshot/submit.
+            return {"status": ApplicationStatus.READY_TO_APPLY}
+        b = Barrier(
+            kind=BarrierKind.UNKNOWN,
+            message=_PATCHRIGHT_INSTALL_HINT,
+            context={"job": state.job.stable_key},
+        )
+        return {"barriers": state.barriers + [b], "status": ApplicationStatus.NEEDS_REVIEW}
 
     master = parse_master_resume()
     out_dir = Path(state.output_dir)

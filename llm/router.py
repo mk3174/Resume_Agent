@@ -43,30 +43,39 @@ class LLMRouter:
 
     # ---- lazy provider construction --------------------------------------
 
-    def _get_provider(self, name: str) -> ChatProvider:
-        if name in self._providers:
-            return self._providers[name]
+    def _provider_cache_key(self, name: str, task: str) -> str:
+        if name == "ollama" and task == "rerank":
+            return "ollama:rerank"
+        return name
+
+    def _get_provider(self, name: str, *, task: str) -> ChatProvider:
+        key = self._provider_cache_key(name, task)
+        if key in self._providers:
+            return self._providers[key]
         pcfg = self._cfg["providers"].get(name, {})
         if name == "ollama":
             host = _expand_env(pcfg.get("host", "http://localhost:11434"))
-            model = pcfg["models"]["chat"]
+            models = pcfg.get("models") or {}
+            model = models.get("rerank", models.get("chat")) if task == "rerank" else models.get("chat")
+            if not model:
+                raise ProviderError("ollama models.chat not configured")
             timeout = pcfg.get("timeout_s", 120)
-            self._providers[name] = OllamaChat(host=host, model=model, timeout_s=timeout)
+            self._providers[key] = OllamaChat(host=host, model=model, timeout_s=timeout)
         elif name == "anthropic":
-            self._providers[name] = AnthropicChat(
+            self._providers[key] = AnthropicChat(
                 model=pcfg["model"],
                 max_tokens=pcfg.get("max_tokens", 4096),
                 temperature=pcfg.get("temperature", 0.2),
             )
         elif name == "openai":
-            self._providers[name] = OpenAIChat(
+            self._providers[key] = OpenAIChat(
                 model=pcfg["model"],
                 max_tokens=pcfg.get("max_tokens", 4096),
                 temperature=pcfg.get("temperature", 0.2),
             )
         else:
             raise ValueError(f"Unknown provider: {name}")
-        return self._providers[name]
+        return self._providers[key]
 
     def get_embedder(self) -> EmbeddingProvider:
         if self._embedder is not None:
@@ -96,7 +105,7 @@ class LLMRouter:
         last_err: Exception | None = None
         for prov_name in order:
             try:
-                provider = self._get_provider(prov_name)
+                provider = self._get_provider(prov_name, task=task)
             except ProviderError as e:
                 log.warning("provider %s unavailable: %s", prov_name, e)
                 last_err = e
@@ -110,6 +119,11 @@ class LLMRouter:
                     temperature=temperature,
                     think=think,
                 )
+                if not (out or "").strip():
+                    raise ProviderError(
+                        f"{prov_name} returned empty response for task={task} "
+                        "(common with local models on long JSON prompts; trying next provider)"
+                    )
                 return out, prov_name
             except ProviderError as e:
                 log.warning("provider %s failed for task=%s: %s", prov_name, task, e)

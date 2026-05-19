@@ -49,6 +49,9 @@ dependencies = [
 ui = ["streamlit>=1.36"]
 notify = ["python-telegram-bot>=21.4"]
 playwright = ["patchright>=1.45.0"]
+api = ["fastapi>=0.115", "uvicorn[standard]>=0.30"]
+postgres = ["psycopg[binary]>=3.2"]
+compute = ["ray[default]>=2.30", "paramiko>=3.4"]
 dev = ["pytest>=8.2", "pytest-asyncio>=0.23", "ruff>=0.5.0"]
 
 [project.scripts]

@@ -27,7 +27,7 @@ class ChatProvider(Protocol):
         """Return the assistant message text. Raises on transport failure.
 
         `think` is only honoured by providers serving reasoning-capable models
-        (e.g. Qwen3 via Ollama). Other providers ignore it.
+        (e.g. Qwen3 via Ollama, which supports `/no_think`). Other providers ignore it.
         """
         ...
 

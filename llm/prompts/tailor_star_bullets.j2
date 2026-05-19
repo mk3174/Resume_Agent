@@ -38,6 +38,8 @@ Return ONLY a JSON object with this exact schema:
 
 HARD RULES (validate.py will reject violators):
 - NEVER change company names, titles, or dates from the master resume.
+- At most 3 `bullets` per experience entry and 2 `project_bullets` per selected project (quality over quantity).
+- Keep each STAR sub-field (`s`, `t`, `a`, `r`) to one short sentence so the JSON fits in one response.
 - Each `bullets` entry must trace to an experience the user actually has.
 - Each `project_bullets` entry must reference one of the SELECTED project ids.
 - If you ESTIMATE a metric (the user didn't supply it), set has_estimate=true and put "[ESTIMATE]" inside the result clause.

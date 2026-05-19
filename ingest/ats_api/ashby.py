@@ -7,7 +7,7 @@ No auth.
 from __future__ import annotations
 
 import logging
-from typing import Iterable
+from typing import Any, Iterable
 
 import httpx
 
@@ -17,6 +17,60 @@ log = logging.getLogger(__name__)
 
 BASE = "https://api.ashbyhq.com/posting-api/job-board/{token}"
 TIMEOUT = httpx.Timeout(20.0)
+
+
+def _usd_salary_range(comp: Any) -> tuple[int | None, int | None]:
+    """Extract USD salary min/max from Ashby ``compensation`` object.
+
+    Ashby has evolved the shape:
+    - **Legacy:** ``compensationTierSummary`` is a list of tier dicts with
+      ``currencyCode``, ``minValue``, ``maxValue``.
+    - **Current (e.g. OpenAI):** ``compensationTierSummary`` is a human string;
+      numeric values live on ``summaryComponents`` or nested
+      ``compensationTiers[].components[]``.
+    """
+    if not isinstance(comp, dict):
+        return None, None
+
+    def from_salary_row(row: dict) -> tuple[int | None, int | None] | None:
+        if (row.get("currencyCode") or "").upper() != "USD":
+            return None
+        if row.get("compensationType") != "Salary":
+            return None
+        mn, mx = row.get("minValue"), row.get("maxValue")
+        if mn is None and mx is None:
+            return None
+        return (
+            int(mn) if mn is not None else None,
+            int(mx) if mx is not None else None,
+        )
+
+    for row in comp.get("summaryComponents") or []:
+        if isinstance(row, dict):
+            got = from_salary_row(row)
+            if got is not None:
+                return got
+    for tier in comp.get("compensationTiers") or []:
+        if not isinstance(tier, dict):
+            continue
+        for row in tier.get("components") or []:
+            if isinstance(row, dict):
+                got = from_salary_row(row)
+                if got is not None:
+                    return got
+
+    legacy = comp.get("compensationTierSummary")
+    if isinstance(legacy, list):
+        for tier in legacy:
+            if not isinstance(tier, dict):
+                continue
+            if (tier.get("currencyCode") or "").upper() == "USD":
+                mn, mx = tier.get("minValue"), tier.get("maxValue")
+                return (
+                    int(mn) if mn is not None else None,
+                    int(mx) if mx is not None else None,
+                )
+    return None, None
 
 
 class AshbyIngestor:
@@ -35,20 +89,19 @@ class AshbyIngestor:
             return []
 
         data = r.json()
-        for raw in data.get("jobs", []):
+        if not isinstance(data, dict):
+            log.warning("ashby unexpected JSON root for %s: %s", board_token, type(data).__name__)
+            return []
+        for raw in data.get("jobs", []) or []:
+            if not isinstance(raw, dict):
+                log.warning("ashby skipping non-object job on %s", board_token)
+                continue
             yield self._parse(raw, board_token)
 
     @staticmethod
     def _parse(raw: dict, company: str) -> JobPosting:
-        comp = raw.get("compensation") or {}
-        salary_min = salary_max = None
-        # Ashby returns compensation tiers; use the first USD one if present.
-        for tier in comp.get("compensationTierSummary", []) or []:
-            cur = (tier.get("currencyCode") or "").upper()
-            if cur == "USD":
-                salary_min = tier.get("minValue")
-                salary_max = tier.get("maxValue")
-                break
+        comp = raw.get("compensation")
+        salary_min, salary_max = _usd_salary_range(comp if isinstance(comp, dict) else None)
 
         desc = raw.get("descriptionPlain") or _strip_html(raw.get("descriptionHtml", ""))
         return JobPosting(
@@ -56,11 +109,11 @@ class AshbyIngestor:
             external_id=raw["id"],
             company=raw.get("organizationName") or company.title(),
             title=raw["title"],
-            location=raw.get("locationName"),
+            location=raw.get("locationName") or raw.get("location"),
             employment_type=raw.get("employmentType"),
-            department=raw.get("departmentName") or raw.get("teamName"),
-            salary_min_usd=int(salary_min) if salary_min else None,
-            salary_max_usd=int(salary_max) if salary_max else None,
+            department=raw.get("departmentName") or raw.get("department") or raw.get("teamName") or raw.get("team"),
+            salary_min_usd=salary_min,
+            salary_max_usd=salary_max,
             description_text=desc.strip(),
             description_html=raw.get("descriptionHtml"),
             apply_url=raw.get("jobUrl") or raw.get("applyUrl") or "",

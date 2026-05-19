@@ -6,19 +6,19 @@
 llm:
   # Which provider to try first for each task. Falls back to next on error.
   routes:
-    tailor:    [ollama, anthropic]   # JD -> resume. Quality matters most here.
-    responder: [ollama, anthropic]   # Custom Q&A.
-    rerank:    [ollama]              # Project rerank in chained_local mode.
+    tailor:    [anthropic]   # JD -> resume. Quality matters most here.
+    responder: [ollama]   # Custom Q&A.
+    rerank:    [anthropic, ollama]    # rerank needs reliable JSON; local models often fail
 
   providers:
     ollama:
       host: ${OLLAMA_HOST:-http://localhost:11434}
       models:
-        chat:    qwen3:8b            # default chat model
-        rerank:  qwen3:8b
+        chat:    gemma4:e4b         # default chat model (Ollama)
+        rerank:  gemma4:e4b
         embed:   nomic-embed-text    # 768-dim, local, free
       timeout_s: 120
-      # NOTE: bump to qwen2.5:14b if you have >=24GB unified memory
+      # NOTE: pick a tag that fits your RAM; see `ollama list` / Ollama model library.
     anthropic:
       model: claude-sonnet-4-5-20250929
       max_tokens: 4096
@@ -42,6 +42,8 @@ tailor:
   embellishment_policy: library_plus_metrics  # library_only | library_plus_metrics | full_synthesis (NOT recommended)
   estimate_tag: "[ESTIMATE]"
   top_k_projects: 10          # pre-filter by embedding before LLM rerank/select
+  star_bullets_max_tokens: 8000  # chained_local step 3; raise if JSON truncates
+  single_call_max_tokens: 8000
 
 # ----------------------------------------------------------------------
 # Responder strategy (custom Q&A).
@@ -82,14 +84,35 @@ ingest:
     - openai
     - linear
 
-  # Phase 4 platforms (off by default)
+  # Phase 4 platforms (off by default — require Patchright + a one-time login).
+  # LinkedIn: conservative defaults — fewer listings, long delays (see README).
   linkedin:
-    enabled: false
+    enabled: true
     storage_state_path: storage_state/linkedin.json
+    search_keywords:
+      - "AI engineer, LLM engineer"
+    location: "United States"
+    max_listings_per_run: 8
+    min_seconds_between_requests: 15
+    max_seconds_between_requests: 35
+    post_search_page_delay_min: 5
+    post_search_page_delay_max: 14
+    scroll_step_delay_min: 2.2
+    scroll_step_delay_max: 5.0
+    easy_apply_step_delay_min: 6
+    easy_apply_step_delay_max: 16
+    min_seconds_between_easy_apply_submits: 900
+    max_searches_per_ingest: 1
   indeed:
-    enabled: false
+    enabled: true
     storage_state_path: storage_state/indeed.json
     proxy_url: ${PROXY_URL}
+    search_keywords:
+      - "AI engineer"
+    location: "Remote"
+    max_listings_per_run: 20
+    min_seconds_between_requests: 3
+    max_seconds_between_requests: 7
 
 # ----------------------------------------------------------------------
 # Apply behaviour (Phase 3+).
@@ -111,6 +134,24 @@ notify:
 # Storage.
 # ----------------------------------------------------------------------
 store:
+  # Override via DATABASE_URL env var (Phase 5: swap SQLite -> Postgres).
   db_url: sqlite:///data/tracker.db
   output_dir: data/output
   chroma_dir: data/chroma
+
+# ----------------------------------------------------------------------
+# Compute runner (Phase 5).
+#   in_process    - run everything locally (default)
+#   ollama_host   - documents the "set OLLAMA_HOST" Mac-mini LLM offload
+#   ssh           - push non-LLM batch jobs over SSH to a remote host
+#   ray           - full orchestrator offload via Ray actors (opt-in)
+# ----------------------------------------------------------------------
+compute:
+  mode: in_process
+  ollama_host: ${OLLAMA_HOST}
+  ssh:
+    host: mac-mini.local
+    user: jk
+    project_root: /Users/jk/Resume_agent
+  ray:
+    address: ray://mac-mini.local:10001

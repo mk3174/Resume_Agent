@@ -5,23 +5,22 @@
 # ----------------------------------------------------------------------
 llm:
   # Which provider to try first for each task. Falls back to next on error.
-  # Local-only: every task runs on the Ollama Qwen model. No external escalation.
+  # Local-only: every task runs on the Ollama Gemma model. No external escalation.
   routes:
-    tailor:    [ollama]              # JD -> resume.
+    tailor:    [anthropic]              # JD extract + STAR bullets (structured JSON).
     responder: [ollama]              # Custom Q&A.
-    rerank:    [ollama]              # Project rerank in chained_local mode.
+    # gemma4 returns empty on full rerank prompts (~3k+ chars); anthropic first, ollama fallback.
+    rerank:    [anthropic, ollama]
 
   providers:
     ollama:
       host: ${OLLAMA_HOST:-http://localhost:11434}
       models:
-        chat:    qwen3:8b            # default chat model (Qwen 3 8B per architecture plan)
-        rerank:  qwen3:8b
+        chat:    gemma4:e4b         # default chat model (Ollama tag)
+        rerank:  gemma4:e4b
         embed:   nomic-embed-text    # 768-dim, local, free
       timeout_s: 600
-      # Hardware sizing: qwen3:8b at Q4 needs ~5GB, fits on an 8GB Mac with room to
-      # spare. qwen3:14b (~9GB) and qwen3:27b (~17GB) require >=16GB and >=24GB
-      # respectively. Bigger is NOT better here; pick the one that fits.
+      # Size depends on Ollama's quantisation for this tag; adjust timeout_s if cold loads are slow.
     anthropic:
       model: claude-sonnet-4-5-20250929
       max_tokens: 4096
@@ -32,7 +31,7 @@ llm:
       temperature: 0.2
 
   # Hard monthly budget cap for paid providers (USD). Hits this -> auto-fallback to local.
-  budget_usd_per_month: 5.00
+  budget_usd_per_month: 10.00
 
 # ----------------------------------------------------------------------
 # Tailor strategy.
@@ -41,10 +40,13 @@ tailor:
   mode: chained_local        # chained_local | single_call
   ats_keyword_threshold: 0.70 # min coverage of JD must-have keywords
   max_retailor_attempts: 2
-  resume_max_words: 700
+  resume_max_words: 800
   embellishment_policy: library_plus_metrics  # library_only | library_plus_metrics | full_synthesis (NOT recommended)
   estimate_tag: "[ESTIMATE]"
   top_k_projects: 10          # pre-filter by embedding before LLM rerank/select
+  # STAR step emits large JSON; 2400 tokens often truncates mid-string → JSONDecodeError.
+  star_bullets_max_tokens: 8000
+  single_call_max_tokens: 8000
 
 # ----------------------------------------------------------------------
 # Responder strategy (custom Q&A).
@@ -85,14 +87,44 @@ ingest:
     - openai
     - linear
 
-  # Phase 4 platforms (off by default)
+  # Phase 4 platforms (off by default — require Patchright + a one-time login).
+  # LinkedIn does not publish automation limits. Defaults err on the side of a
+  # slow human: few listings per sweep, long random gaps, slow scroll. Raise
+  # throughput only if you accept restriction risk.
   linkedin:
     enabled: false
     storage_state_path: storage_state/linkedin.json
+    # Each entry is a comma-separated keywords string passed to one search URL.
+    # Fewer rows = fewer searches per `ingest` (each row opens a browser sweep).
+    search_keywords:
+      - "AI engineer, LLM engineer"
+    location: "United States"
+    max_listings_per_run: 8
+    min_seconds_between_requests: 15
+    max_seconds_between_requests: 35
+    post_search_page_delay_min: 5
+    post_search_page_delay_max: 14
+    scroll_step_delay_min: 2.2
+    scroll_step_delay_max: 5.0
+    # Easy Apply wizard (apply/linkedin.py): pause between steps like a careful user.
+    easy_apply_step_delay_min: 6
+    easy_apply_step_delay_max: 16
+    # Real submits only: minimum wall time between LinkedIn "Submit application" clicks.
+    min_seconds_between_easy_apply_submits: 900
+    # At most this many LinkedIn keyword searches per `resume-agent ingest` (each is a browser session).
+    max_searches_per_ingest: 1
   indeed:
     enabled: false
     storage_state_path: storage_state/indeed.json
     proxy_url: ${PROXY_URL}
+    search_keywords:
+      - "AI engineer"
+      - "LLM engineer"
+      - "Machine Learning engineer"
+    location: "Remote"
+    max_listings_per_run: 20
+    min_seconds_between_requests: 3
+    max_seconds_between_requests: 7
 
 # ----------------------------------------------------------------------
 # Apply behaviour (Phase 3+).
@@ -114,6 +146,24 @@ notify:
 # Storage.
 # ----------------------------------------------------------------------
 store:
+  # Override via DATABASE_URL env var (Phase 5: swap SQLite -> Postgres).
   db_url: sqlite:///data/tracker.db
   output_dir: data/output
   chroma_dir: data/chroma
+
+# ----------------------------------------------------------------------
+# Compute runner (Phase 5).
+#   in_process    - run everything locally (default)
+#   ollama_host   - documents the "set OLLAMA_HOST" Mac-mini LLM offload
+#   ssh           - push non-LLM batch jobs over SSH to a remote host
+#   ray           - full orchestrator offload via Ray actors (opt-in)
+# ----------------------------------------------------------------------
+compute:
+  mode: in_process
+  ollama_host: ${OLLAMA_HOST}
+  ssh:
+    host: mac-mini.local
+    user: jk
+    project_root: /Users/jk/Resume_agent
+  ray:
+    address: ray://mac-mini.local:10001

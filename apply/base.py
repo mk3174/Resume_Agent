@@ -24,6 +24,18 @@ from orchestrator.state import (
 
 log = logging.getLogger(__name__)
 
+_PATCHRIGHT_INSTALL_HINT = (
+    "patchright not installed. Run: uv sync --extra playwright && "
+    "uv run patchright install chromium"
+)
+
+
+def patchright_available() -> bool:
+    """True when the optional `playwright` extra (Patchright) is installed."""
+    import importlib.util
+
+    return importlib.util.find_spec("patchright") is not None
+
 
 # ---------------------------------------------------------------------------
 # Result + context
@@ -106,6 +118,8 @@ class BrowserSession:
 
     def __enter__(self):
         # Lazy import — patchright is optional [extras]
+        if not patchright_available():
+            raise ModuleNotFoundError(_PATCHRIGHT_INSTALL_HINT)
         from patchright.sync_api import sync_playwright
 
         self._pw = sync_playwright().start()

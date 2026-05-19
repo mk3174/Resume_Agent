@@ -32,6 +32,10 @@ from orchestrator.state import (
 log = logging.getLogger(__name__)
 
 
+def _tailor_token_limit(key: str, default: int) -> int:
+    return int(load_settings()["tailor"].get(key, default))
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -44,7 +48,7 @@ def tailor(
 ) -> tuple[JDAnalysis, TailoredResume]:
     settings = load_settings()
     mode = settings["tailor"]["mode"]
-    top_k = int(settings["tailor"].get("top_k_projects", 10))
+    top_k = int(settings["tailor"].get("top_k_projects", 7))
     candidates = candidates[:top_k]
 
     if mode == "single_call":
@@ -70,6 +74,7 @@ def _chained_local(
         json_mode=True,
         max_tokens=800,
         temperature=0.1,
+        think=False,
     )
     log.info("JD extract via %s", used)
     jd = JDAnalysis(**_parse_json(raw))
@@ -83,18 +88,26 @@ def _chained_local(
             task="rerank",
             prompt=p,
             json_mode=True,
-            max_tokens=300,
+            max_tokens=512,
             temperature=0.1,
+            think=False,
         )
         log.info("rerank via %s", used)
-        sel = _parse_json(raw)
+        try:
+            sel = _parse_json(raw)
+        except json.JSONDecodeError:
+            log.warning(
+                "rerank JSON parse failed (%s); using top embedding candidates",
+                used,
+            )
+            sel = {}
         ids: list[str] = sel.get("selected_project_ids") or []
         by_id = {c.id: c for c in candidates}
         selected = [by_id[i] for i in ids if i in by_id][:4]
         if not selected:  # graceful fallback
             selected = candidates[:3]
 
-    # ---- Step 3: STAR bullets ----
+    # ---- Step 3: STAR bullets (large JSON; truncation → Unterminated string) ----
     p = render_prompt(
         "tailor_star_bullets.j2",
         job=job,
@@ -102,15 +115,16 @@ def _chained_local(
         master=master,
         selected_projects=selected,
     )
-    raw, used = router.chat(
+    body, used = _chat_json(
+        router,
         task="tailor",
         prompt=p,
-        json_mode=True,
-        max_tokens=2400,
+        max_tokens=_tailor_token_limit("star_bullets_max_tokens", 8192),
         temperature=0.3,
+        think=False,
+        step_label="STAR bullets",
     )
     log.info("STAR bullets via %s", used)
-    body = _parse_json(raw)
 
     tailored = _build_tailored(body, master, selected_ids=[p.id for p in selected])
     return jd, tailored
@@ -126,15 +140,15 @@ def _single_call(
 ) -> tuple[JDAnalysis, TailoredResume]:
     router = get_router()
     p = render_prompt("tailor_single_call.j2", job=job, master=master, candidates=candidates)
-    raw, used = router.chat(
+    body, used = _chat_json(
+        router,
         task="tailor",
         prompt=p,
-        json_mode=True,
-        max_tokens=3500,
+        max_tokens=_tailor_token_limit("single_call_max_tokens", 8000),
         temperature=0.2,
+        step_label="single-call tailor",
     )
     log.info("single-call tailor via %s", used)
-    body = _parse_json(raw)
 
     jd_raw = body.get("jd_analysis") or {}
     jd = JDAnalysis(
@@ -153,9 +167,55 @@ def _single_call(
 # ---------------------------------------------------------------------------
 
 
+def _chat_json(
+    router,
+    *,
+    task: str,
+    prompt: str,
+    max_tokens: int,
+    temperature: float = 0.2,
+    think: bool | None = False,
+    step_label: str = "tailor",
+) -> tuple[dict[str, Any], str]:
+    """Call LLM with json_mode and parse; retry with 2x tokens if output was truncated."""
+    mt = max_tokens
+    last_err: json.JSONDecodeError | None = None
+    last_raw = ""
+    used = ""
+    for attempt in range(3):
+        raw, used = router.chat(
+            task=task,
+            prompt=prompt,
+            json_mode=True,
+            max_tokens=mt,
+            temperature=temperature,
+            think=think,
+        )
+        last_raw = raw
+        try:
+            return _parse_json(raw), used
+        except json.JSONDecodeError as e:
+            last_err = e
+            if attempt >= 2:
+                break
+            next_mt = min(mt * 2, 16384)
+            log.warning(
+                "%s JSON truncated or invalid (%s, %d chars); retrying with max_tokens=%s",
+                step_label,
+                e,
+                len(raw or ""),
+                next_mt,
+            )
+            mt = next_mt
+    log.error("JSON parse failed after retries: %s\nraw_tail=%s", last_err, (last_raw or "")[-500:])
+    raise last_err  # type: ignore[misc]
+
+
 def _parse_json(raw: str) -> dict[str, Any]:
     """Tolerant JSON parser: strips code fences, trims junk, recovers if possible."""
     txt = raw.strip()
+    if not txt:
+        raise json.JSONDecodeError("empty model response", "", 0)
     if txt.startswith("```"):
         # strip triple-backtick fences with optional ```json
         txt = re.sub(r"^```[a-zA-Z]*\n", "", txt)
@@ -168,7 +228,14 @@ def _parse_json(raw: str) -> dict[str, Any]:
     try:
         return json.loads(txt)
     except json.JSONDecodeError as e:
-        log.error("JSON parse failed: %s\nraw=%s", e, raw[:1000])
+        if "Unterminated string" in str(e) or not txt.rstrip().endswith("}"):
+            log.error(
+                "JSON parse failed (likely max_tokens truncation, len=%d): %s",
+                len(txt),
+                e,
+            )
+        else:
+            log.error("JSON parse failed: %s\nraw=%s", e, raw[:1000])
         raise
 
 

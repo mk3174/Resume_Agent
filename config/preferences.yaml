@@ -8,6 +8,11 @@ target_titles:
   - LLM Engineer
   - Applied AI Engineer
   - AI Software Engineer
+  - Software Engineer (AI/ML)
+  - AI/ML Software Engineer
+  - Data Engineer
+  - Data Scientist
+
 
 # Hard filters (rules.py). A job must pass ALL of these.
 hard_filters:
@@ -23,12 +28,60 @@ hard_filters:
       - UK Only
   employment_types:
     - Full-time
+    - Part-time
+    - Contract
+    - Internship
+
   seniority:
+    # Drop senior / manager+ titles (substring match on job title).
     deny:
-      - Intern
+      - Sr.
+      - Staff
+      - Principal
+      - Distinguished
+      - Fellow
       - Director
       - VP
-      - Principal           # remove if you ARE a principal
+      - Vice President
+      - Head of
+      - Chief
+      - Manager
+      - Management
+      - Tech Lead
+      - Team Lead
+      - Engineering Manager
+      - Product Manager
+      - Program Manager
+      - Technical Program Manager
+      - TPM
+      - Supervisor
+      - Lead Engineer
+      - Group Manager
+    # Also scan full posting for manager/senior phrasing and high YOE bars.
+    # Quote phrases with "+" or "minimum …" — bare values confuse the YAML parser.
+    deny_in_text:
+      - "4+ years"
+      - "5+ years"
+      - "6+ years"
+      - "7+ years"
+      - "8+ years"
+      - "9+ years"
+      - "10+ years"
+      - "12+ years"
+      - "15+ years"
+      - "minimum 4 years"
+      - "minimum 5 years"
+      - "minimum 6 years"
+      - "minimum 7 years"
+      - "minimum 8 years"
+      - "minimum 10 years"
+      - "years of management experience"
+      - "people management"
+      - "manage a team"
+      - "managing a team"
+      - "direct reports"
+    # Postings asking for more than this many years are dropped (regex on title+desc).
+    max_experience_years: 4
   exclude_companies: []
   min_salary_usd: 120000    # set 0 to disable
   required_keywords_any: []  # job must contain at least one of these (substring on title+desc)
@@ -38,9 +91,25 @@ hard_filters:
 
 # Soft scoring (semantic.py). Higher = better fit.
 interest_summary: |
-  AI engineer focused on building production LLM applications, multi-agent systems,
-  retrieval-augmented generation, and agentic workflows. Comfortable with Python,
-  Typescript, vector databases, evals, and shipping prototypes to production. Prefer
-  early-stage startups or applied-AI teams over pure research roles.
 
-semantic_score_min: 0.55     # 0.0 - 1.0, jobs below this are dropped
+  "Early-career AI/ML and software engineer (0–3 years experience) building production-grade
+  AI systems, LLM applications, multi-agent architectures, retrieval-augmented generation (RAG),
+  and scalable data platforms. Experienced with Python, TypeScript, SQL, distributed systems,
+  microservices, REST/gRPC APIs, cloud infrastructure, Docker, Kubernetes, CI/CD pipelines,
+  asynchronous systems, event-driven architectures, and full-stack development.
+
+  Comfortable working across the AI lifecycle including model integration, fine-tuning,
+  prompt engineering, evals/observability, vector databases, data pipelines, ETL workflows,
+  feature engineering, experimentation, analytics, and deploying ML systems to production.
+
+  Familiar with modern AI/ML and data ecosystems including PyTorch, TensorFlow, LangChain,
+  LangGraph, OpenAI APIs, FastAPI, Spark, Airflow, Kafka, Redis, PostgreSQL, Snowflake,
+  Databricks, AWS/GCP/Azure, and monitoring/debugging tooling.
+
+  Interested in Software Engineer (AI Systems), AI Engineer, Machine Learning Engineer,
+  Applied AI Engineer, Data Engineer, Platform Engineer, and Data Scientist roles focused
+  on scalable systems, intelligent automation, backend infrastructure, and production AI.
+  Seeking individual contributor opportunities (junior, associate, new grad, or mid-level)
+  rather than senior/staff/principal/leadership positions."
+
+semantic_score_min: 0.40     # 0.0 - 1.0, jobs below this are dropped
