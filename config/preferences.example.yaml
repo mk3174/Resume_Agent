@@ -24,11 +24,23 @@ hard_filters:
   employment_types:
     - Full-time
   seniority:
+    # Title substrings that disqualify a posting (senior / manager+).
     deny:
-      - Intern
+      - Senior
+      - Staff
+      - Principal
+      - Manager
       - Director
       - VP
-      - Principal           # remove if you ARE a principal
+    # Extra phrases checked in title + description (high YOE, people mgmt).
+    # Quote "+" / "minimum …" phrases so YAML does not treat them as keys.
+    deny_in_text:
+      - "5+ years"
+      - "minimum 5 years"
+      - "people management"
+      - "direct reports"
+    # Drop postings that require more than N years (regex; see filters/rules.py).
+    max_experience_years: 4
   exclude_companies: []
   min_salary_usd: 120000    # set 0 to disable
   required_keywords_any: []  # job must contain at least one of these (substring on title+desc)

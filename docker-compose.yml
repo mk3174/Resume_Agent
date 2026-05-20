@@ -1,0 +1,83 @@
+# Resume Agent — Phase 5 stack.
+#
+# Brings up: Postgres + Ollama + the FastAPI control plane + the Streamlit UI.
+#
+#   docker compose up -d
+#
+# The `agent-api` and `agent-ui` services share a bind-mounted `data/` so
+# Chroma, output artifacts, and qa_memory.json are visible to both. Ollama is
+# launched as a sidecar so the host's existing daemon (if any) doesn't have to
+# be exposed to the agent.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-resume}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-resume}
+      POSTGRES_DB: ${POSTGRES_DB:-resume_agent}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-resume}"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama:/root/.ollama
+    ports:
+      - "11434:11434"
+
+  agent-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-resume}:${POSTGRES_PASSWORD:-resume}@postgres:5432/${POSTGRES_DB:-resume_agent}
+      OLLAMA_HOST: http://ollama:11434
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+
+  agent-ui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - agent-api
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-resume}:${POSTGRES_PASSWORD:-resume}@postgres:5432/${POSTGRES_DB:-resume_agent}
+      OLLAMA_HOST: http://ollama:11434
+    command:
+      - streamlit
+      - run
+      - apps/streamlit_ui/app.py
+      - --server.port=8501
+      - --server.address=0.0.0.0
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+
+volumes:
+  pgdata:
+  ollama:

@@ -46,10 +46,45 @@ def _anthropic() -> tuple[bool, str]:
     return False, "no key (local-only)"
 
 
+def _linkedin_session() -> tuple[bool, str]:
+    """Check storage_state shape without echoing cookie values."""
+    import json
+    from pathlib import Path
+
+    from config_loader import PROJECT_ROOT
+
+    cfg = load_settings()["ingest"].get("linkedin", {}) or {}
+    if not cfg.get("enabled", False):
+        return True, "ingest disabled (keep off until you need LinkedIn)"
+
+    rel = cfg.get("storage_state_path", "storage_state/linkedin.json")
+    p = Path(rel)
+    if not p.is_absolute():
+        p = PROJECT_ROOT / p
+    if not p.exists():
+        return False, "storage_state missing — run: uv run resume-agent linkedin-login"
+
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        return False, f"invalid JSON ({e})"
+
+    cookies = data.get("cookies") or []
+    names = {
+        c.get("name")
+        for c in cookies
+        if isinstance(c, dict) and "linkedin" in (c.get("domain") or "").lower()
+    }
+    if "li_at" in names:
+        return True, "session OK (signed-in cookie present; do not share this file)"
+    return False, "file exists but no li_at — re-run linkedin-login"
+
+
 def check_all() -> dict[str, tuple[bool, str]]:
     return {
         "Config": _config(),
         "Ollama": _ollama(),
         "Telegram": _telegram(),
         "Anthropic": _anthropic(),
+        "LinkedIn": _linkedin_session(),
     }

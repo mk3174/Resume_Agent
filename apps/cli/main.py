@@ -203,6 +203,19 @@ def status(limit: int = typer.Option(20, "--limit")):
 # ---------------------------------------------------------------------------
 
 
+@app.command("linkedin-login")
+def linkedin_login():
+    """Open a headed Patchright browser to LinkedIn, save storage_state once logged in.
+
+    Re-run this whenever LinkedIn invalidates the session (typically every 30-90 days
+    or after a security check). Required before LinkedIn ingest/apply work.
+    """
+    from ingest.linkedin import interactive_login
+
+    path = interactive_login()
+    console.print(f"[green]Saved storage_state to[/] {path}")
+
+
 @app.command()
 def doctor():
     """Check that Ollama, configs, and embeddings are working."""
@@ -227,9 +240,9 @@ def doctor():
 
     try:
         from llm.router import get_router
-        # 27B qwen3 needs ~30-60s cold-load + a generous num_predict budget so the
-        # answer survives even if thinking is partially emitted. Force /no_think
-        # for the smoke test to keep it fast.
+        # Cold model load can take a while; keep num_predict modest. For Qwen3,
+        # think=False forces /no_think so short smoke replies are not eaten by
+        # reasoning tokens. Other models (e.g. Gemma) ignore think.
         out, prov = get_router().chat(
             task="rerank",
             prompt="Reply with the single word OK.",

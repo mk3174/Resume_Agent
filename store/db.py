@@ -1,9 +1,22 @@
-"""SQLAlchemy session helpers + per-job folder writer."""
+"""SQLAlchemy session helpers + per-job folder writer.
+
+The engine honours these in order of priority:
+
+1. ``$DATABASE_URL`` environment variable (Phase 5 Postgres swap)
+2. ``store.db_url`` in ``settings.yaml`` (SQLite default)
+
+To swap SQLite -> Postgres, set
+``DATABASE_URL=postgresql+psycopg://user:pw@host:5432/resume_agent`` in your
+environment (or via docker-compose) and ensure the optional ``psycopg`` driver
+is installed (``pip install psycopg[binary]``). No code changes required —
+the ORM models in :mod:`store.models` are dialect-agnostic.
+"""
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from datetime import datetime
 from functools import lru_cache
@@ -11,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy import create_engine, select
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from config_loader import PROJECT_ROOT, load_settings
@@ -20,17 +34,39 @@ from store.models import Application, Base
 log = logging.getLogger(__name__)
 
 
-@lru_cache(maxsize=1)
-def _engine():
-    db_url = load_settings()["store"]["db_url"]
-    # Resolve relative sqlite paths against project root
+def _resolve_db_url() -> str:
+    """Pick a database URL.
+
+    Order: env DATABASE_URL > settings.store.db_url. Relative sqlite paths are
+    resolved against the project root so behaviour is the same regardless of
+    cwd.
+    """
+    db_url = os.getenv("DATABASE_URL") or load_settings()["store"]["db_url"]
     if db_url.startswith("sqlite:///"):
         rel = db_url.replace("sqlite:///", "")
         if not rel.startswith("/"):
             db_url = "sqlite:///" + str((PROJECT_ROOT / rel).resolve())
-    engine = create_engine(db_url, future=True)
+    return db_url
+
+
+@lru_cache(maxsize=1)
+def _engine() -> Engine:
+    db_url = _resolve_db_url()
+    log.info("DB engine -> %s", _redact(db_url))
+    is_sqlite = db_url.startswith("sqlite")
+    engine = create_engine(
+        db_url,
+        future=True,
+        pool_pre_ping=not is_sqlite,
+        connect_args={"check_same_thread": False} if is_sqlite else {},
+    )
     Base.metadata.create_all(engine)
     return engine
+
+
+def _redact(url: str) -> str:
+    """Hide credentials when we log the connection string."""
+    return re.sub(r"://([^:/]+):([^@]+)@", r"://\1:***@", url)
 
 
 @lru_cache(maxsize=1)

@@ -30,6 +30,7 @@ data/tracker.db
 data/tracker.db-*
 data/chroma/
 storage_state/
+data/.linkedin_*
 
 # Generated PDFs & screenshots in ad-hoc locations
 *.pdf

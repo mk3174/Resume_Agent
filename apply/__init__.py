@@ -6,7 +6,9 @@ from __future__ import annotations
 
 # Side-effect imports register each applier in the registry.
 # Order doesn't matter; register() is idempotent per JobSource.
-from apply import ashby, greenhouse, lever, workday  # noqa: F401
+# linkedin and indeed import patchright lazily, so an environment without the
+# `playwright` extras can still import this package.
+from apply import ashby, greenhouse, indeed, lever, linkedin, workday  # noqa: F401
 
 from apply.base import (  # re-export
     Applier,
