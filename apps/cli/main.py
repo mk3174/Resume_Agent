@@ -127,9 +127,11 @@ def run(
     _setup_logging(verbose)
     # CLI flag overrides settings.apply.dry_apply for this run.
     load_settings()["apply"]["dry_apply"] = bool(dry_apply)
-    jobs = fetch_all()
+    with console.status("[bold]Ingesting jobs from ATS boards…"):
+        jobs = fetch_all()
     console.print(f"Ingested [bold]{len(jobs)}[/] raw jobs")
-    kept = filter_jobs(jobs)
+    with console.status("[bold]Filtering jobs (rules + semantic match)…"):
+        kept = filter_jobs(jobs)
     console.print(f"Kept [bold]{len(kept)}[/] after filtering")
 
     if not kept:

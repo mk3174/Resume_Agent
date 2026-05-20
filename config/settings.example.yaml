@@ -17,7 +17,7 @@ llm:
         chat:    qwen3:8b            # default chat model
         rerank:  qwen3:8b
         embed:   nomic-embed-text    # 768-dim, local, free
-      timeout_s: 120
+      timeout_s: 1200
       # NOTE: bump to qwen2.5:14b if you have >=24GB unified memory
     anthropic:
       model: claude-sonnet-4-5-20250929
