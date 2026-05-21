@@ -7,10 +7,12 @@ llm:
   # Which provider to try first for each task. Falls back to next on error.
   # Local-only: every task runs on the Ollama Gemma model. No external escalation.
   routes:
-    tailor:    [anthropic]              # JD extract + STAR bullets (structured JSON).
-    responder: [ollama]              # Custom Q&A.
-    # gemma4 returns empty on full rerank prompts (~3k+ chars); anthropic first, ollama fallback.
-    rerank:    [anthropic, ollama]
+    tailor_jd:   [ollama]            # JD keyword extract — local
+    tailor_star: [anthropic]          # STAR experience + project bullets — cloud only
+    tailor:      [ollama]            # single_call mode fallback
+    responder:   [ollama]            # custom application Q&A
+    rerank:      [ollama]            # project selection — local
+    tailor_ats:  [ollama]            # ATS keyword boost when coverage < threshold
 
   providers:
     ollama:
@@ -38,9 +40,14 @@ llm:
 # ----------------------------------------------------------------------
 tailor:
   mode: chained_local        # chained_local | single_call
-  ats_keyword_threshold: 0.70 # min coverage of JD must-have keywords
-  max_retailor_attempts: 2
-  resume_max_words: 800
+  ats_keyword_threshold: 0.90   # tune resume until must-have keyword coverage >= 90%
+  max_retailor_attempts: 3
+  ats_tune_max_attempts: 3      # deterministic skills + local Ollama rewrites
+  resume_max_words: 900
+  min_experience_bullets: 3     # per role (pad from master base bullets when LLM returns fewer)
+  max_experience_bullets: 5
+  min_project_bullets: 2        # per selected personal project
+  max_project_bullets: 3
   embellishment_policy: library_plus_metrics  # library_only | library_plus_metrics | full_synthesis (NOT recommended)
   estimate_tag: "[ESTIMATE]"
   top_k_projects: 10          # pre-filter by embedding before LLM rerank/select
@@ -130,7 +137,7 @@ ingest:
 # Apply behaviour (Phase 3+).
 # ----------------------------------------------------------------------
 apply:
-  dry_apply: true              # if true, render artifacts but don't actually submit
+  dry_apply: false             # CLI --dry-apply/--apply overrides per run
   rate_limit_per_hour: 8       # global cap across all platforms
   screenshot_on_submit: true
 

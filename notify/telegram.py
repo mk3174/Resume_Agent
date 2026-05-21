@@ -98,13 +98,22 @@ def _telegram_send(text: str) -> None:
     try:
         import httpx  # already a dep
 
-        httpx.post(
+        resp = httpx.post(
             f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": chat_id, "text": text},
+            json={"chat_id": chat_id, "text": text[:4000]},
             timeout=10.0,
         )
+        if resp.status_code >= 400:
+            detail = resp.text[:300]
+            log.warning(
+                "telegram send failed (%s): %s — check TELEGRAM_CHAT_ID and that you /start the bot",
+                resp.status_code,
+                detail,
+            )
+            log.info("[notify] %s", text)
     except Exception as e:  # noqa: BLE001
         log.warning("telegram send failed: %s", e)
+        log.info("[notify] %s", text)
 
 
 def _telegram_pause(

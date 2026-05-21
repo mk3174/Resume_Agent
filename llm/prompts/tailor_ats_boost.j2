@@ -1,0 +1,20 @@
+Improve ATS keyword coverage. You may ONLY edit summary, skills, experience bullets, and project_bullets.
+
+Missing must-have keywords (weave naturally):
+{{ missing_keywords | join(", ") }}
+
+LOCKED (do not change): headline, education, certifications, publications, company names, titles, dates.
+
+Current editable JSON:
+{{ current_json }}
+
+Rules:
+- Return ONLY valid JSON with keys: summary, skills, experience, project_bullets
+- Keep company/title/start/end/location EXACTLY unchanged per experience entry
+- Every bullet must include star {s,t,a,r} and pass STAR (action + measurable result)
+- At least 3 bullets per experience entry; 2–3 project_bullets per selected project id
+- Include every missing keyword at least once across summary, skills, or bullets
+- skills: pick from verified master skills + missing must-haves (10-18 items)
+- Do not add [ESTIMATE] unless already present
+
+Output JSON only:

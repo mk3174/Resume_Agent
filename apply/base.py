@@ -177,11 +177,14 @@ def detect_ban_signal(page) -> str | None:
     return None
 
 
-def safe_fill(page, selector: str, value: str, *, timeout_ms: int = 5000) -> bool:
+def safe_fill(page, selector: str, value: str, *, timeout_ms: int = 8000) -> bool:
     """Best-effort fill: returns True if the field existed and was filled."""
+    if not (value or "").strip():
+        return False
     try:
         loc = page.locator(selector).first
         loc.wait_for(state="visible", timeout=timeout_ms)
+        loc.scroll_into_view_if_needed()
         loc.fill(value)
         return True
     except Exception as e:  # noqa: BLE001
@@ -189,36 +192,187 @@ def safe_fill(page, selector: str, value: str, *, timeout_ms: int = 5000) -> boo
         return False
 
 
-def iter_form_fields(page) -> Iterator[tuple[str, str, str]]:
-    """Yield (selector, label, kind) for every visible form input.
+# DOM scan used by iter_form_fields / collect_unfilled_required. Lever and
+# Greenhouse often use wrapper divs instead of <label for="...">.
+_FORM_SCAN_JS = """
+() => {
+  const norm = (s) => (s || '').replace(/\\s+/g, ' ').trim();
+  const labelFor = (el) => {
+    const card = el.closest('.application-question, .application-field, li');
+    if (card) {
+      const q = card.querySelector('.application-label, .application-question, legend, h3, h4, label:not([for])');
+      const qText = q ? norm(q.innerText) : '';
+      const type = (el.type || '').toLowerCase();
+      if (qText && (type === 'checkbox' || type === 'radio')) {
+        const sub = norm(el.value || el.getAttribute('aria-label') || '');
+        if (sub && sub !== qText) return `${qText} — ${sub}`;
+        return qText;
+      }
+      if (qText) return qText;
+    }
+    const id = el.id;
+    if (id) {
+      const lab = document.querySelector(`label[for="${CSS.escape(id)}"]`);
+      if (lab) return norm(lab.innerText);
+    }
+    const wrap = el.closest('.application-field, .application-question, .field, fieldset, li');
+    if (wrap) {
+      const lab = wrap.querySelector('.application-label, .application-question, legend, label, h3, h4');
+      if (lab) return norm(lab.innerText);
+    }
+    return norm(el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.value || el.name || el.id || '');
+  };
+  const isRequired = (el, label) => {
+    if (el.required || el.getAttribute('aria-required') === 'true') return true;
+    if (label.includes('*')) return true;
+    const wrap = el.closest('.application-field, .application-question, .field');
+    if (wrap && wrap.querySelector('.required')) return true;
+    return false;
+  };
+  const isVisible = (el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) return false;
+    const st = window.getComputedStyle(el);
+    return st.visibility !== 'hidden' && st.display !== 'none';
+  };
+  const isEmptyValue = (el, tag, type) => {
+    if (type === 'checkbox') return !el.checked;
+    if (type === 'radio') {
+      const group = document.querySelectorAll(`input[type=radio][name="${CSS.escape(el.name)}"]`);
+      return ![...group].some((r) => r.checked);
+    }
+    if (tag === 'select') {
+      const opt = el.options[el.selectedIndex];
+      if (!opt) return true;
+      const t = norm(opt.text).toLowerCase();
+      const v = norm(opt.value);
+      if (!v) return true;
+      if (t.startsWith('select') || t === 'choose' || t === '--') return true;
+      return false;
+    }
+    return !norm(el.value);
+  };
 
-    Useful for the Responder loop: feed each unknown label into responder.answer().
+  const fields = [];
+  const seenRadio = new Set();
+  for (const el of document.querySelectorAll('input, textarea, select')) {
+    const tag = el.tagName.toLowerCase();
+    const type = (el.type || '').toLowerCase();
+    if (['hidden', 'submit', 'button', 'file'].includes(type)) continue;
+    if (!isVisible(el)) continue;
+    const name = el.name || el.id || '';
+    if (!name) continue;
+    if (type === 'radio') {
+      if (seenRadio.has(name)) continue;
+      seenRadio.add(name);
+    }
+    const label = labelFor(el);
+    if (!label) continue;
+    const selector = el.name
+      ? `[name=${JSON.stringify(el.name)}]`
+      : `#${CSS.escape(el.id)}`;
+    fields.push({
+      selector,
+      label,
+      kind: type === 'radio' ? 'radio' : (type === 'checkbox' ? 'checkbox' : tag),
+      name,
+      required: isRequired(el, label),
+      empty: isEmptyValue(el, tag, type),
+    });
+  }
+  return fields;
+}
+"""
+
+
+def scan_form_fields(page) -> list[dict[str, Any]] | None:
+    """Return visible form controls with labels, required flag, and empty state.
+
+    Returns None when the DOM scan JS fails (callers must not treat as 'no missing fields').
     """
-    for el in page.locator("input, textarea, select").all():
+    try:
+        raw = page.evaluate(_FORM_SCAN_JS)
+        return raw if isinstance(raw, list) else []
+    except Exception as e:  # noqa: BLE001
+        log.warning("form scan failed: %s", e)
+        return None
+
+
+def collect_unfilled_required(page) -> list[dict[str, Any]] | None:
+    """Required controls that are still empty (pre-submit gate). None if scan failed."""
+    fields = scan_form_fields(page)
+    if fields is None:
+        return None
+    return [f for f in fields if f.get("required") and f.get("empty")]
+
+
+def detect_validation_errors(page) -> list[str]:
+    """Visible client-side validation messages after a failed submit attempt."""
+    errors: list[str] = []
+    for sel in (
+        ".error-message",
+        ".field-error",
+        ".errors",
+        "[role='alert']",
+        ".application-error",
+    ):
         try:
-            tag = el.evaluate("e => e.tagName.toLowerCase()")
-            type_ = el.get_attribute("type") or ""
-            if type_ in {"hidden", "submit", "button", "file"}:
-                continue
-            name = el.get_attribute("name") or el.get_attribute("id") or ""
-            label = _label_for(page, name)
-            sel = f"[name='{name}']" if name else None
-            if sel and label:
-                yield sel, label, tag
+            for el in page.locator(sel).all():
+                txt = (el.inner_text() or "").strip()
+                if txt and txt not in errors:
+                    errors.append(txt)
         except Exception:  # noqa: BLE001
             continue
+    return errors
 
 
-def _label_for(page, name: str) -> str | None:
-    if not name:
-        return None
+def detect_submit_success(page, url_before: str) -> bool:
+    """True when the page looks like a post-submit confirmation, not the form."""
+    url = page.url or ""
+    if url != url_before:
+        low = url.lower()
+        if any(token in low for token in ("thank", "confirm", "success", "submitted")):
+            return True
+        if "lever.co" in low and "/apply" not in low:
+            return True
+
+    body = (page.content() or "").lower()
+    for phrase in (
+        "thank you for applying",
+        "application submitted",
+        "thanks for applying",
+        "we received your application",
+        "your application has been received",
+    ):
+        if phrase in body:
+            return True
+
+    still_required = collect_unfilled_required(page)
+    if still_required is None or still_required:
+        return False
+    if detect_validation_errors(page):
+        return False
+
+    submit_still = page.locator(
+        "button[data-qa='btn-submit'], button:has-text('Submit application'), #submit_app"
+    )
     try:
-        loc = page.locator(f"label[for='{name}']").first
-        if loc.count() > 0:
-            return (loc.inner_text() or "").strip()
+        if submit_still.count() > 0 and submit_still.first.is_visible():
+            return False
     except Exception:  # noqa: BLE001
         pass
-    return None
+    return False
+
+
+def iter_form_fields(page) -> Iterator[tuple[str, str, str]]:
+    """Yield (selector, label, kind) for visible empty form controls."""
+    fields = scan_form_fields(page)
+    if not fields:
+        return
+    for field in fields:
+        if not field.get("empty"):
+            continue
+        yield field["selector"], field["label"], field["kind"]
 
 
 def make_unrecoverable_barrier(message: str, **context: Any) -> Barrier:

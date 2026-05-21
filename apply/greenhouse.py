@@ -12,8 +12,8 @@ from __future__ import annotations
 import logging
 
 from apply._common import (
-    answer_custom_questions,
     fill_common,
+    prepare_form_before_submit,
     submit_and_screenshot,
     upload_resume,
 )
@@ -53,7 +53,7 @@ class GreenhouseApplier(Applier):
                     "input[type='file']",
                 ],
             )
-            qa, barriers = answer_custom_questions(page, ctx)
+            qa, barriers = prepare_form_before_submit(page, ctx)
             res = submit_and_screenshot(
                 page,
                 ctx,

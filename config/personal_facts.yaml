@@ -3,22 +3,21 @@
 # Anything left blank or null will fall back to: cached qa_memory -> LLM -> Telegram.
 
 identity:
-  full_name: Jane Doe
-  email: jane@example.com
-  phone: "+1-555-0100"
-  linkedin_url: https://www.linkedin.com/in/janedoe
-  github_url: https://github.com/janedoe
-  portfolio_url: https://janedoe.dev
-  pronouns: she/her
+  full_name: Jaya Karthik Muppinidi
+  email: karthikmuppinidi@gmail.com
+  phone: "+13128383146"
+  linkedin_url: https://www.linkedin.com/in/jayakarthikmuppinidi
+  github_url: https://github.com/mk3174
+  pronouns: he/him
 
 work_authorization:
   citizen_or_pr_in:    [US]                  # countries
   visa_required_in:    [Canada, UK]          # countries where you'd need sponsorship
   open_to_relocation:  true
-  willing_to_travel_pct: 25
+  willing_to_travel_pct: 50
 
 compensation:
-  base_min_usd: 150000
+  base_min_usd: 110000
   base_target_usd: 190000
   base_max_usd: 230000
   open_to_equity: true
@@ -29,10 +28,10 @@ availability:
   earliest_start_date: 2026-06-01
 
 demographics:                                # only what you're willing to share on EEOC forms
-  gender: prefer_not_to_say
-  ethnicity: prefer_not_to_say
+  gender: male
+  ethnicity: asian
   veteran_status: not_a_veteran
-  disability_status: prefer_not_to_say
+  disability_status: no
 
 experience_years:
   python: 6

@@ -90,6 +90,20 @@ AI/ML Engineer with 2+ years of experience designing and deploying production-gr
 - Designed MLOps-aligned evaluation pipelines with golden datasets, automated testing suites, and human-in-the-loop validation; reduced model-related incident response time by 40% attaining accuracy and bias regressions before prod deployment across all live AI services.
 - Engineered scalable ETL and data pipelines for AI training and inference using Delta Lake, AWS S3, and metadata cataloging tools, processing 10M+ clinical records with full auditability and compliance across the model development lifecycle.
 
+## Personal Projects
+
+### Enterprise Agentic RAG (MusB Research)
+- Architected an enterprise-grade agentic RAG system with LangGraph and OpenAI-compatible LLM APIs for multi-step orchestration (tool use, memory, planning).
+
+### Clinical RAG + Diagnostic ML (TEKsystems)
+- Built production RAG pipelines and semantic search with LangChain, custom embeddings, and vector retrieval for context-aware clinical NLP.
+
+### AI Text Generation Portal
+- Architected a custom Transformer-based LLM using nanoGPT with PyTorch training loops and custom tokenization pipelines.
+
+### Multimodal RAG (Hybrid Retrieval + Observability Dashboard)
+- Built hybrid retrieval and an observability dashboard for LLM/RAG production monitoring.
+
 ## Education
 
 ### Illinois Institute of Technology | M.S. Computer Science | 2023-08 - 2025-05

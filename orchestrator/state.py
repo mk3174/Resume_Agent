@@ -103,6 +103,19 @@ class MasterResume(BaseModel):
     experience: list[WorkExperience] = Field(default_factory=list)
     education: list[dict[str, str]] = Field(default_factory=list)
     certifications: list[str] = Field(default_factory=list)
+    publications: list[str] = Field(default_factory=list)
+    projects_sections: dict[str, list[dict[str, Any]]] = Field(
+        default_factory=dict,
+        description="## Projects section heading -> [{title, base_bullets}] from master ### subheadings.",
+    )
+    section_order: list[str] = Field(
+        default_factory=lambda: ["Summary", "Experience", "Education", "Certifications"],
+        description="## heading order from master_resume.md — controls PDF section layout.",
+    )
+    layout: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Typography / layout knobs from master frontmatter (font, sizes, skills placement).",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -137,6 +150,7 @@ class TailoredExperience(BaseModel):
     title: str
     start: str
     end: str | None = None
+    location: str | None = None
     bullets: list[ResumeBullet]
 
 
@@ -152,6 +166,8 @@ class TailoredResume(BaseModel):
     )
     project_bullets: list[ResumeBullet] = Field(default_factory=list)
     education: list[dict[str, str]] = Field(default_factory=list)
+    certifications: list[str] = Field(default_factory=list)
+    publications: list[str] = Field(default_factory=list)
     cover_paragraph: str = ""
     ats_coverage: float = 0.0  # filled by validate.py
 

@@ -6,9 +6,12 @@
 llm:
   # Which provider to try first for each task. Falls back to next on error.
   routes:
-    tailor:    [anthropic]   # JD -> resume. Quality matters most here.
-    responder: [ollama]   # Custom Q&A.
-    rerank:    [anthropic, ollama]    # rerank needs reliable JSON; local models often fail
+    tailor_jd:   [ollama]            # JD keyword extract — local
+    tailor_star: [anthropic]         # STAR experience + project bullets — cloud only
+    tailor:      [ollama]            # single_call mode fallback
+    responder:   [ollama]
+    rerank:      [ollama]
+    tailor_ats:  [ollama]            # ATS keyword boost when coverage < threshold
 
   providers:
     ollama:
@@ -36,9 +39,14 @@ llm:
 # ----------------------------------------------------------------------
 tailor:
   mode: chained_local        # chained_local | single_call
-  ats_keyword_threshold: 0.70 # min coverage of JD must-have keywords
-  max_retailor_attempts: 2
-  resume_max_words: 700
+  ats_keyword_threshold: 0.90   # min coverage of JD must-have keywords (0.9–1.0 target)
+  max_retailor_attempts: 3
+  ats_tune_max_attempts: 3      # skills inject + local Ollama rewrite passes
+  resume_max_words: 900
+  min_experience_bullets: 3
+  max_experience_bullets: 5
+  min_project_bullets: 2
+  max_project_bullets: 3
   embellishment_policy: library_plus_metrics  # library_only | library_plus_metrics | full_synthesis (NOT recommended)
   estimate_tag: "[ESTIMATE]"
   top_k_projects: 10          # pre-filter by embedding before LLM rerank/select

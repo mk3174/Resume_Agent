@@ -198,10 +198,22 @@ def node_apply(state: ApplicationState) -> dict[str, Any]:
             "barriers": state.barriers + result.barriers,
             "status": ApplicationStatus.BARRIER,
         }
+    if result.submitted:
+        return {
+            "qa": state.qa + result.qa,
+            "artifacts": new_artifacts,
+            "status": ApplicationStatus.APPLIED,
+        }
+    b = Barrier(
+        kind=BarrierKind.MISSING_FACT,
+        message="Apply step finished without submitting (form incomplete or validation failed)",
+        context={"job": state.job.stable_key},
+    )
     return {
         "qa": state.qa + result.qa,
         "artifacts": new_artifacts,
-        "status": ApplicationStatus.APPLIED if result.submitted else ApplicationStatus.READY_TO_APPLY,
+        "barriers": state.barriers + [b],
+        "status": ApplicationStatus.BARRIER,
     }
 
 
@@ -290,30 +302,69 @@ def _estimates_present(tailored) -> bool:
 
 
 def _to_markdown(state: ApplicationState) -> str:
-    """Cheap markdown dump of the tailored resume for human review."""
+    """Markdown dump mirroring master resume section order."""
     t = state.tailored
     if t is None:
         return ""
+    master = parse_master_resume()
     lines: list[str] = []
-    lines.append(f"# {t.headline}")
+    lines.append(f"# {master.name}")
+    lines.append(f"*{master.headline}*")
     lines.append("")
-    if t.summary:
-        lines.append("## Summary")
-        lines.append(t.summary)
-        lines.append("")
-    if t.skills:
-        lines.append("## Skills")
-        lines.append(", ".join(t.skills))
-        lines.append("")
-    lines.append("## Experience")
-    for e in t.experience:
-        lines.append(f"### {e.company} — {e.title} ({e.start} – {e.end or 'Present'})")
-        for b in e.bullets:
-            lines.append(f"- {b.text}")
-        lines.append("")
-    if t.project_bullets:
-        lines.append("## Selected Projects")
-        for b in t.project_bullets:
-            lines.append(f"- {b.text}")
-        lines.append("")
+
+    for section in master.section_order:
+        key = section.strip().lower()
+        if key == "summary" and t.summary:
+            lines.append(f"## {section}")
+            lines.append(t.summary)
+            if t.skills:
+                lines.append("")
+                lines.append(" · ".join(t.skills))
+            lines.append("")
+        elif key == "skills" and t.skills:
+            lines.append(f"## {section}")
+            lines.append(", ".join(t.skills))
+            lines.append("")
+        elif key == "experience":
+            lines.append(f"## {section}")
+            lines.append("")
+            for e in t.experience:
+                loc = f" | {e.location}" if e.location else ""
+                lines.append(f"### {e.company} | {e.title} | {e.start} - {e.end or 'Present'}{loc}")
+                for b in e.bullets:
+                    lines.append(f"- {b.text}")
+                lines.append("")
+        elif key == "education" and (t.education or master.education):
+            lines.append(f"## {section}")
+            lines.append("")
+            for ed in t.education or master.education:
+                lines.append(
+                    f"### {ed.get('school', '')} | {ed.get('degree', '')} | {ed.get('dates', '')}"
+                )
+            lines.append("")
+        elif key == "certifications":
+            certs = t.certifications or master.certifications
+            if certs:
+                lines.append(f"## {section}")
+                for c in certs:
+                    lines.append(f"- {c}")
+                lines.append("")
+        elif key == "publications":
+            pubs = t.publications or master.publications
+            if pubs:
+                lines.append(f"## {section}")
+                for p in pubs:
+                    lines.append(f"- {p}")
+                lines.append("")
+        elif typst_mod._is_projects_section(section):
+            entries = typst_mod._project_entries(section, t, master)
+            if entries:
+                lines.append(f"## {section}")
+                lines.append("")
+                for entry in entries:
+                    lines.append(f"### {entry['title']}")
+                    for b in entry["bullets"]:
+                        lines.append(f"- {b}")
+                    lines.append("")
+
     return "\n".join(lines)

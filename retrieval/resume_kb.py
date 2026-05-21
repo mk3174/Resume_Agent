@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -60,6 +61,32 @@ def _section(body: str, heading: str) -> str:
 
 def _bullets(text: str) -> list[str]:
     return [line.lstrip("-* ").strip() for line in text.splitlines() if line.lstrip().startswith(("-", "*"))]
+
+
+def _section_headings(body: str) -> list[str]:
+    return [m.group(1).strip() for m in re.finditer(r"^##\s+(.+)\s*$", body, re.MULTILINE)]
+
+
+_PROJECT_SUBHEADING_RE = re.compile(r"^###\s+(.+)\s*$", re.MULTILINE)
+
+
+def _is_projects_section(heading: str) -> bool:
+    key = heading.strip().lower()
+    return "project" in key and key != "experience"
+
+
+def _parse_project_section(text: str) -> list[dict[str, Any]]:
+    """Parse ### project name subheadings and bullets under a projects ## section."""
+    matches = list(_PROJECT_SUBHEADING_RE.finditer(text))
+    if not matches:
+        return []
+    entries: list[dict[str, Any]] = []
+    for i, match in enumerate(matches):
+        title = match.group(1).strip()
+        start = match.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        entries.append({"title": title, "base_bullets": _bullets(text[start:end])})
+    return entries
 
 
 def parse_master_resume(path: Path | None = None) -> MasterResume:
@@ -111,6 +138,27 @@ def parse_master_resume(path: Path | None = None) -> MasterResume:
     certs_raw = _section(body, "Certifications")
     certifications = _bullets(certs_raw)
 
+    pubs_raw = _section(body, "Publications")
+    publications = _bullets(pubs_raw)
+
+    section_order = _section_headings(body) or [
+        "Summary",
+        "Experience",
+        "Education",
+        "Certifications",
+        "Publications",
+    ]
+
+    projects_sections: dict[str, list[dict[str, Any]]] = {}
+    for heading in section_order:
+        if _is_projects_section(heading):
+            raw = _section(body, heading)
+            entries = _parse_project_section(raw)
+            if entries:
+                projects_sections[heading] = entries
+
+    layout = dict(meta.get("layout") or {})
+
     return MasterResume(
         name=meta.get("name", ""),
         headline=meta.get("headline", ""),
@@ -120,4 +168,8 @@ def parse_master_resume(path: Path | None = None) -> MasterResume:
         experience=experience,
         education=education,
         certifications=certifications,
+        publications=publications,
+        projects_sections=projects_sections,
+        section_order=section_order,
+        layout=layout,
     )

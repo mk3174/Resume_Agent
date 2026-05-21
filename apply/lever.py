@@ -11,10 +11,13 @@ from __future__ import annotations
 import logging
 
 from apply._common import (
-    answer_custom_questions,
-    fill_common,
+    fill_lever_basics,
+    fill_lever_standard_fields,
+    fill_lever_card_fields,
+    prepare_form_before_submit,
     submit_and_screenshot,
     upload_resume,
+    _has_blocking_barriers,
 )
 from apply.base import (
     Applier,
@@ -23,6 +26,7 @@ from apply.base import (
     BrowserSession,
     register,
     safe_fill,
+    screenshot_to,
 )
 from orchestrator.state import JobSource
 
@@ -45,21 +49,10 @@ class LeverApplier(Applier):
             except Exception as e:  # noqa: BLE001
                 log.warning("no form found: %s", e)
 
-            # Lever uses combined `name` rather than first/last.
-            full_name = ctx.master.name
-            safe_fill(page, "[name='name']", full_name)
-            fill_common(page, ctx)
-            # Lever URL fields are bracketed.
-            contact = ctx.master.contact or {}
-            for key, val in (
-                ("LinkedIn", contact.get("linkedin")),
-                ("GitHub", contact.get("github")),
-                ("Other", contact.get("portfolio")),
-            ):
-                if val:
-                    safe_fill(page, f"[name='urls[{key}]']", val)
+            fill_lever_basics(page, ctx)
+            fill_lever_standard_fields(page, ctx)
+            fill_lever_card_fields(page, ctx)
 
-            # Cover letter goes into 'comments' textarea.
             cover = (ctx.cover_md.read_text(encoding="utf-8") if ctx.cover_md.exists() else "").strip()
             if cover:
                 safe_fill(page, "textarea[name='comments']", cover)
@@ -72,7 +65,16 @@ class LeverApplier(Applier):
                     "input[type='file']",
                 ],
             )
-            qa, barriers = answer_custom_questions(page, ctx)
+            qa, barriers = prepare_form_before_submit(page, ctx)
+            if _has_blocking_barriers(barriers) and not ctx.dry_apply:
+                png = screenshot_to(ctx.output_dir, page)
+                return ApplyResult(
+                    submitted=False,
+                    qa=qa,
+                    barriers=barriers,
+                    screenshot_path=str(png),
+                    confirmation_url=page.url,
+                )
             res = submit_and_screenshot(
                 page,
                 ctx,

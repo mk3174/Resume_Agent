@@ -3,15 +3,12 @@
 Lookup order:
   1. personal_facts.yaml   (deterministic; no LLM)
   2. qa_memory.json        (cosine similarity >= settings.responder.similarity_threshold)
-  3. LLM (Tailor's router, task='responder')
+  3. Local Ollama with full resume + job context (open-ended / essay questions)
+  4. LLM fallback (same router, task='responder')
 
 If confidence < threshold OR question contains an "always_escalate" keyword
 AND no personal_facts entry covers it, return needs_review=True so the
 orchestrator pings Telegram.
-
-This module is wired but minimally exercised in Phase 1 (form-filling lives in
-Phase 3). It's importable today so unit tests and the eventual Streamlit
-"answer this question" UI both have a stable surface.
 """
 
 from __future__ import annotations
@@ -22,14 +19,46 @@ from pathlib import Path
 from typing import Any
 
 from config_loader import PROJECT_ROOT, load_personal_facts, load_settings
+from llm.prompts import render as render_prompt
 from llm.router import get_router
-from orchestrator.state import QAEntry
+from orchestrator.state import MasterResume, QAEntry, TailoredResume
+from pipeline.resume_context import build_responder_context
 from retrieval.embeddings import cosine, embed
 
 log = logging.getLogger(__name__)
 
+_OPEN_ENDED_MARKERS = (
+    "why",
+    "interest",
+    "motivat",
+    "5 year",
+    "five year",
+    "yourself",
+    "tell us",
+    "describe",
+    "what excites",
+    "what attracts",
+    "passion",
+    "cover letter",
+    "anything else",
+    "greatest strength",
+    "biggest challenge",
+    "proud",
+    "mission",
+    "culture",
+    "fit",
+)
 
-def answer(question: str, *, job_title: str, company: str) -> QAEntry:
+
+def answer(
+    question: str,
+    *,
+    job_title: str,
+    company: str,
+    master: MasterResume | None = None,
+    tailored: TailoredResume | None = None,
+    job_description: str = "",
+) -> QAEntry:
     settings = load_settings()["responder"]
     threshold_sim = float(settings["similarity_threshold"])
     threshold_conf = float(settings["confidence_threshold"])
@@ -37,10 +66,11 @@ def answer(question: str, *, job_title: str, company: str) -> QAEntry:
 
     q_lower = question.lower()
     must_escalate = any(k in q_lower for k in escalate_kw)
+    open_ended = _is_open_ended(q_lower)
 
     # 1) personal_facts
     facts = load_personal_facts()
-    fact_answer = _from_personal_facts(question, facts)
+    fact_answer = _from_personal_facts(question, facts, company=company)
     if fact_answer is not None:
         return QAEntry(question=question, answer=fact_answer, confidence=0.99, source="personal_facts")
 
@@ -49,36 +79,32 @@ def answer(question: str, *, job_title: str, company: str) -> QAEntry:
     if cached is not None and not must_escalate:
         return cached
 
-    # 3) LLM
-    router = get_router()
-    sys = (
-        "You answer custom job-application questions on the candidate's behalf. "
-        "Be concise (<=4 sentences), professional, and specific to the role/company."
+    # 3) Local Ollama with resume context (preferred for essay / why-company questions)
+    resume_context = build_responder_context(
+        master=master,
+        tailored=tailored,
+        job_description=job_description,
     )
-    prompt = (
-        f"Job: {job_title} @ {company}\n\n"
-        f"Question: {question}\n\n"
-        "If you don't have enough info to answer truthfully and specifically, "
-        "respond with the literal string NEEDS_HUMAN."
-    )
-    try:
-        raw, _ = router.chat(task="responder", prompt=prompt, system=sys, max_tokens=400)
-    except Exception as e:  # noqa: BLE001
-        log.warning("responder LLM failed: %s", e)
-        return QAEntry(
-            question=question, answer="", confidence=0.0, source="llm", needs_review=True
+    if resume_context and (open_ended or master is not None):
+        entry = _answer_with_resume_context(
+            question,
+            job_title=job_title,
+            company=company,
+            resume_context=resume_context,
+            must_escalate=must_escalate,
+            open_ended=open_ended,
+            threshold_conf=threshold_conf,
         )
-    text = raw.strip()
-    needs_review = must_escalate or text.upper().startswith("NEEDS_HUMAN") or len(text) < 8
-    confidence = 0.0 if needs_review else _heuristic_confidence(text, question)
-    if confidence < threshold_conf:
-        needs_review = True
-    return QAEntry(
-        question=question,
-        answer="" if needs_review else text,
-        confidence=confidence,
-        source="llm",
-        needs_review=needs_review,
+        if entry.answer or entry.needs_review:
+            return entry
+
+    # 4) Generic LLM fallback (no resume block)
+    return _answer_generic(
+        question,
+        job_title=job_title,
+        company=company,
+        must_escalate=must_escalate,
+        threshold_conf=threshold_conf,
     )
 
 
@@ -97,6 +123,104 @@ def remember(entry: QAEntry) -> None:
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
+
+def _is_open_ended(q_lower: str) -> bool:
+    return any(m in q_lower for m in _OPEN_ENDED_MARKERS)
+
+
+def _answer_with_resume_context(
+    question: str,
+    *,
+    job_title: str,
+    company: str,
+    resume_context: str,
+    must_escalate: bool,
+    open_ended: bool,
+    threshold_conf: float,
+) -> QAEntry:
+    router = get_router()
+    prompt = render_prompt(
+        "responder_application.j2",
+        question=question,
+        job_title=job_title,
+        company=company,
+        resume_context=resume_context,
+    )
+    sys = (
+        "You write authentic job-application answers grounded in the candidate's real resume. "
+        "Plain text only."
+    )
+    try:
+        raw, prov = router.chat(
+            task="responder",
+            prompt=prompt,
+            system=sys,
+            max_tokens=512 if open_ended else 256,
+            temperature=0.35,
+            think=False,
+        )
+    except Exception as e:  # noqa: BLE001
+        log.warning("contextual responder failed: %s", e)
+        return QAEntry(question=question, answer="", confidence=0.0, source="llm", needs_review=True)
+
+    text = raw.strip()
+    if text.upper().startswith("NEEDS_HUMAN") or len(text) < 8:
+        return QAEntry(question=question, answer="", confidence=0.0, source="llm", needs_review=True)
+
+    needs_review = must_escalate
+    confidence = _heuristic_confidence(text, question)
+    if open_ended and not must_escalate:
+        confidence = max(confidence, 0.75)
+        needs_review = False
+    elif confidence < threshold_conf:
+        needs_review = True
+
+    return QAEntry(
+        question=question,
+        answer="" if needs_review else text,
+        confidence=confidence,
+        source="llm",
+        needs_review=needs_review,
+    )
+
+
+def _answer_generic(
+    question: str,
+    *,
+    job_title: str,
+    company: str,
+    must_escalate: bool,
+    threshold_conf: float,
+) -> QAEntry:
+    router = get_router()
+    sys = (
+        "You answer custom job-application questions on the candidate's behalf. "
+        "Be concise (<=4 sentences), professional, and specific to the role/company."
+    )
+    prompt = (
+        f"Job: {job_title} @ {company}\n\n"
+        f"Question: {question}\n\n"
+        "If you don't have enough info to answer truthfully and specifically, "
+        "respond with the literal string NEEDS_HUMAN."
+    )
+    try:
+        raw, prov = router.chat(task="responder", prompt=prompt, system=sys, max_tokens=400)
+    except Exception as e:  # noqa: BLE001
+        log.warning("responder LLM failed: %s", e)
+        return QAEntry(question=question, answer="", confidence=0.0, source="llm", needs_review=True)
+    text = raw.strip()
+    needs_review = must_escalate or text.upper().startswith("NEEDS_HUMAN") or len(text) < 8
+    confidence = 0.0 if needs_review else _heuristic_confidence(text, question)
+    if confidence < threshold_conf:
+        needs_review = True
+    return QAEntry(
+        question=question,
+        answer="" if needs_review else text,
+        confidence=confidence,
+        source="llm",
+        needs_review=needs_review,
+    )
 
 
 def _qa_memory_path() -> Path:
@@ -133,9 +257,16 @@ def _from_qa_memory(q: str, *, threshold: float) -> QAEntry | None:
     return None
 
 
-def _from_personal_facts(question: str, facts: dict[str, Any]) -> str | None:
+def _from_personal_facts(question: str, facts: dict[str, Any], *, company: str = "") -> str | None:
     """Naive keyword-routing into the structured facts file. Extended ad-hoc."""
     q = question.lower()
+
+    # Why this company / role (use canned + company name)
+    if any(k in q for k in ("why", "interest", "motivat", "what excites", "what attracts")):
+        if company.lower() in q or "company" in q or "role" in q or "work at" in q:
+            canned = (facts.get("canned_answers") or {}).get("why_interested_in_ai") or ""
+            if canned:
+                return f"{canned.strip()} I'm especially interested in {company} because the {company} team ships production AI systems at scale."
 
     # Visa / sponsorship
     if any(k in q for k in ("sponsor", "visa", "h1b", "work authorization", "authorized to work")):
@@ -173,12 +304,66 @@ def _from_personal_facts(question: str, facts: dict[str, Any]) -> str | None:
         if skill.lower() in q and ("year" in q or "experience" in q):
             return f"{years}+ years of hands-on {skill} experience."
 
-    # Demographics
-    if any(k in q for k in ("gender", "race", "ethnicity", "veteran", "disability")):
+    # 5-year vision
+    if "5 year" in q or "five year" in q:
+        canned = (facts.get("canned_answers") or {}).get("five_year_plan") or ""
+        if canned:
+            return canned.strip()
+        return (
+            "In five years I want to be a senior IC leading production LLM systems end-to-end — "
+            "architecture, evals, and reliable delivery — while mentoring engineers on applied AI."
+        )
+
+    # Relocation
+    if "relocat" in q:
+        wa = facts.get("work_authorization") or {}
+        rel = wa.get("open_to_relocation")
+        if rel is True:
+            return "Yes"
+        if rel is False:
+            return "No"
+
+    # Source / referral
+    if "how did you hear" in q or "how did you find" in q or "where did you hear" in q:
+        return "LinkedIn"
+
+    # Voluntary self-identification acknowledgement (checkbox)
+    if ("voluntary self" in q or "self-identify" in q) and "gender" not in q:
+        return "Yes"
+
+    # Location (common Lever required dropdown)
+    if q.strip().lower().startswith("location"):
+        return "United States"
+
+    # Demographics (including Lever eeo[...] field names)
+    if any(k in q for k in ("gender", "race", "ethnicity", "veteran", "disability", "eeo[")):
         dem = facts.get("demographics") or {}
+        if "veteran" in q:
+            vs = dem.get("veteran_status")
+            if vs and "not" in str(vs).lower():
+                return "I am not a veteran"
+            return str(vs or "").replace("_", " ")
+        if "disability" in q:
+            ds = dem.get("disability_status")
+            if ds and str(ds).lower() in {"no", "false"}:
+                return "No, I don't have a disability"
+            return str(ds or "").replace("_", " ")
+        if "gender" in q:
+            g = dem.get("gender")
+            if g and "prefer" not in str(g).lower():
+                return str(g).capitalize() if str(g).lower() in {"male", "female"} else str(g).replace("_", " ")
+        if "race" in q or "ethnicity" in q:
+            eth = dem.get("ethnicity")
+            if eth and "prefer" not in str(eth).lower():
+                return str(eth).replace("_", " ").title()
         for key, val in dem.items():
-            if key in q:
-                return val.replace("_", " ")
+            if key.replace("_", " ") in q or key in q:
+                human = str(val).replace("_", " ")
+                if "prefer not" in human.lower():
+                    return "Decline to self-identify"
+                if key == "veteran_status" and "not" in human.lower():
+                    return "I am not a veteran"
+                return human
 
     # Canned answers
     canned = facts.get("canned_answers") or {}
@@ -191,6 +376,7 @@ def _from_personal_facts(question: str, facts: dict[str, Any]) -> str | None:
 
 def _heuristic_confidence(text: str, question: str) -> float:
     """Very rough: longer thoughtful answers get higher score, ultra-short = low."""
+    _ = question
     n = len(text.split())
     if n < 10:
         return 0.4

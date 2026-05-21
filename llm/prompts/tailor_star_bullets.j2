@@ -2,9 +2,8 @@ You are writing the bullet points for a tailored resume. Be ruthless about ATS k
 
 Return ONLY a JSON object with this exact schema:
 {
-  "headline": string,                            // one line under the candidate's name
-  "summary": string,                             // 2-3 sentences max
-  "skills": [string, ...],                       // 8-15 keyword-rich skills, JD must-haves first
+  "summary": string,                             // 2-3 sentences max (ONLY field you may rewrite for summary section)
+  "skills": [string, ...],                       // reorder/subset of verified master skills + JD must-haves
   "experience": [
     {
       "company": string,                         // EXACTLY as in master resume
@@ -13,12 +12,12 @@ Return ONLY a JSON object with this exact schema:
       "end": string | null,                      // EXACTLY as in master resume
       "bullets": [
         {
-          "text": string,                        // the actual bullet shown on resume
+          "text": string,                        // STAR bullet shown on resume (action verb + result)
           "source": "experience",
           "source_ref": "experience:<company>:<start>",
           "star": {"s": "...", "t": "...", "a": "...", "r": "..."},
-          "keywords_hit": [string, ...],         // JD keywords this bullet covers
-          "has_estimate": boolean                 // true if "r" contains a metric you ESTIMATED
+          "keywords_hit": [string, ...],
+          "has_estimate": boolean
         }
       ]
     }
@@ -33,21 +32,32 @@ Return ONLY a JSON object with this exact schema:
       "has_estimate": boolean
     }
   ],
-  "cover_paragraph": string                      // 4-6 sentences, ready to paste in cover letter field
+  "cover_paragraph": string
 }
 
-HARD RULES (validate.py will reject violators):
-- NEVER change company names, titles, or dates from the master resume.
-- At most 3 `bullets` per experience entry and 2 `project_bullets` per selected project (quality over quantity).
-- Keep each STAR sub-field (`s`, `t`, `a`, `r`) to one short sentence so the JSON fits in one response.
-- Each `bullets` entry must trace to an experience the user actually has.
-- Each `project_bullets` entry must reference one of the SELECTED project ids.
-- If you ESTIMATE a metric (the user didn't supply it), set has_estimate=true and put "[ESTIMATE]" inside the result clause.
-- STAR format: every bullet's "text" field must imply Situation, Task, Action, Result. Action verbs in past tense.
-- Cover keywords from must_have_keywords first, then nice_to_have_keywords. Aim for >=70% must-have coverage.
-- COMPACT OUTPUT (required for local models): at most 2 bullets per experience entry; at most 2
-  project_bullets total; set "star" to {} on every bullet; keep each bullet text under 180 chars.
-- Escape double quotes inside strings as \". Output JSON only. No prose, no code fences.
+LAYOUT LOCK (validate.py rejects changes):
+- Do NOT output headline — PDF uses master headline unchanged.
+- Do NOT change education, certifications, or publications (rendered verbatim from master).
+- NEVER change company names, titles, dates, or locations from the master resume.
+- Include EVERY experience entry from the master (same companies and date ranges).
+
+YOU MAY CHANGE ONLY:
+- summary text
+- skills list (pick from master.skills + JD must-haves)
+- experience bullet text (STAR rewrites grounded in base bullets / projects)
+- project_bullets (2–3 per selected project id; light ATS tailoring)
+
+BULLET COUNTS (validate.py enforces):
+- At least 3 bullets per experience entry (up to 5); ground each in that role's base bullets.
+- 2–3 project_bullets per selected project id (source_ref project:<id>); distribute bullets across ids.
+
+STAR (required — validate.py checks before apply):
+- Every bullet MUST include non-empty star.s, star.t, star.a, star.r (one short sentence each).
+- "text" must be a polished STAR bullet derived from those fields (past tense, metric in result when possible).
+- If you ESTIMATE a metric, set has_estimate=true and "[ESTIMATE]" in the result.
+
+ATS: cover must_have_keywords first; aim >=90% must-have coverage across summary + skills + bullets.
+Escape double quotes inside strings as \". Output JSON only. No prose, no code fences.
 
 JOB:
 - Title: {{ job.title }} @ {{ job.company }}
@@ -55,20 +65,45 @@ JOB:
 - Nice-to-have: {{ jd.nice_to_have_keywords | join(", ") }}
 - Themes: {{ jd.semantic_themes | join(", ") }}
 
-MASTER RESUME:
+MASTER RESUME (layout source of truth):
 Name: {{ master.name }}
-Headline: {{ master.headline }}
-Summary: {{ master.summary }}
-Skills (verified): {{ master.skills | join(", ") }}
+Headline (locked): {{ master.headline }}
+Summary (starting point): {{ master.summary }}
+Skills (verified pool): {{ master.skills | join(", ") }}
 Experience:
 {% for e in master.experience %}
-- {{ e.company }} | {{ e.title }} | {{ e.start }} - {{ e.end or "Present" }}
+- {{ e.company }} | {{ e.title }} | {{ e.start }} - {{ e.end or "Present" }}{% if e.location %} | {{ e.location }}{% endif %}
   base bullets:
   {% for b in e.base_bullets %}    * {{ b }}
   {% endfor %}
 {% endfor %}
+Education (locked — rendered from master, do not rewrite):
+{% for ed in master.education %}
+- {{ ed.get("school", "") }} | {{ ed.get("degree", "") }} | {{ ed.get("dates", "") }}
+{% endfor %}
+{% if master.certifications %}
+Certifications (locked):
+{% for c in master.certifications %}- {{ c }}
+{% endfor %}
+{% endif %}
+{% if master.publications %}
+Publications (locked):
+{% for p in master.publications %}- {{ p }}
+{% endfor %}
+{% endif %}
 
-SELECTED PROJECTS (you MUST write project_bullets for each):
+{% if master.projects_sections %}
+PERSONAL PROJECTS (master outline — expand to 2–3 STAR bullets each when selected):
+{% for heading, entries in master.projects_sections.items() %}
+## {{ heading }}
+{% for e in entries %}- {{ e.title }}:
+  {% for b in e.base_bullets %}  * {{ b }}
+  {% endfor %}
+{% endfor %}
+{% endfor %}
+{% endif %}
+
+SELECTED PROJECTS (write 2–3 project_bullets per id below):
 {% for p in selected_projects %}
 - id: {{ p.id }}
   title: {{ p.title }}
